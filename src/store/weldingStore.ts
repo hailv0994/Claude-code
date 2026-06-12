@@ -11,7 +11,7 @@ interface WeldingState {
   joint: JointInput;
   quality: QualityRequirements;
   equipment: EquipmentInput;
-  componentFile: UploadedFile | null;
+  componentFiles: UploadedFile[];
   assemblyFile: UploadedFile | null;
   results: WeldingParameters | null;
   preheat: PreheatResult | null;
@@ -21,7 +21,8 @@ interface WeldingState {
   setJoint: (j: Partial<JointInput>) => void;
   setQuality: (q: Partial<QualityRequirements>) => void;
   setEquipment: (e: Partial<EquipmentInput>) => void;
-  setComponentFile: (f: UploadedFile | null) => void;
+  addComponentFile: (f: UploadedFile) => void;
+  removeComponentFile: (index: number) => void;
   setAssemblyFile: (f: UploadedFile | null) => void;
   calculate: () => void;
 }
@@ -69,7 +70,7 @@ export const useWeldingStore = create<WeldingState>((set, get) => ({
   joint: defaultJoint,
   quality: defaultQuality,
   equipment: defaultEquipment,
-  componentFile: null,
+  componentFiles: [],
   assemblyFile: null,
   results: null,
   preheat: null,
@@ -95,7 +96,10 @@ export const useWeldingStore = create<WeldingState>((set, get) => ({
     results: null,
   })),
 
-  setComponentFile: (f) => set({ componentFile: f }),
+  addComponentFile: (f) => set((state) => ({ componentFiles: [...state.componentFiles, f] })),
+  removeComponentFile: (index) => set((state) => ({
+    componentFiles: state.componentFiles.filter((_, i) => i !== index),
+  })),
   setAssemblyFile: (f) => set({ assemblyFile: f }),
 
   calculate: () => {
