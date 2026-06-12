@@ -9,6 +9,7 @@ export default function Step1Upload() {
     assemblyFile, setAssemblyFile,
     userHint, setUserHint,
     setAnalysis, setStep, setLoading, setError,
+    isLoading, loadingMsg,
   } = useAppStore();
 
   const [showKey, setShowKey] = useState(false);
@@ -146,12 +147,24 @@ export default function Step1Upload() {
         />
       </div>
 
+      {isLoading && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
+          <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin shrink-0" />
+          <p className="text-sm text-blue-700">{loadingMsg || 'Đang phân tích...'}</p>
+        </div>
+      )}
+
       <button
         onClick={handleAnalyze}
-        disabled={componentFiles.length === 0 || !apiKey.trim()}
-        className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        disabled={componentFiles.length === 0 || !apiKey.trim() || isLoading}
+        className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
       >
-        Phân tích bằng Gemini AI
+        {isLoading ? (
+          <>
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            Đang phân tích...
+          </>
+        ) : 'Phân tích bằng Gemini AI'}
       </button>
     </div>
   );
