@@ -29,8 +29,11 @@ export interface MaterialGrade {
 
 export interface MaterialInput {
   type: BaseMetalType;
-  gradeId: string;
+  gradeId: string;        // matched grade id OR free-text name
   thickness: number;
+  customCE?: number;      // user-supplied CE_IIW when grade not in library
+  customFy?: number;      // MPa
+  customFu?: number;      // MPa
 }
 
 export interface JointInput {

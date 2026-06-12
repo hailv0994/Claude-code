@@ -154,8 +154,31 @@ export function calculatePreheat(material: MaterialInput): PreheatResult {
   const grade = getGradeById(material.gradeId);
   const t = material.thickness;
 
+  // Use custom CE if grade not in library
   if (!grade) {
-    return { preheatMin: 10, interpassMin: 10, interpassMax: 250, ceIIW: 0, cet: 0, method: 'Default' };
+    const ceIIW = material.customCE ?? 0;
+    if (ceIIW === 0) {
+      return {
+        preheatMin: 10, interpassMin: 10, interpassMax: 250,
+        ceIIW: 0, cet: 0,
+        method: 'Nhập CE_IIW thủ công để tính nhiệt độ nung sơ bộ'
+      };
+    }
+    // Use CE to determine preheat
+    let pNumberKey: string;
+    if (ceIIW <= 0.40) pNumberKey = '1_low_ce';
+    else if (ceIIW <= 0.45) pNumberKey = '1_med_ce';
+    else pNumberKey = '1_high_ce';
+    const entries = AWS_D1_1_PREHEAT.filter(e => e.pNumber === pNumberKey);
+    const entry = entries.find(e => t <= e.thicknessMax) ?? entries[entries.length - 1];
+    const preheatMin = entry?.preheatMin ?? 10;
+    return {
+      preheatMin,
+      interpassMin: preheatMin,
+      interpassMax: INTERPASS_MAX[material.type] ?? 250,
+      ceIIW, cet: 0,
+      method: `CE_IIW=${ceIIW.toFixed(2)} (nhập thủ công), AWS D1.1 lookup, t=${t}mm`
+    };
   }
 
   const ceIIW = grade.ceIIW;
