@@ -74,7 +74,6 @@ export interface OptimalParams {
 }
 
 interface AppState {
-  apiKey: string;
   step: WorkflowStep;
   componentFiles: File[];
   assemblyFile: File | null;
@@ -92,7 +91,6 @@ interface AppState {
   loadingMsg: string;
   error: string | null;
 
-  setApiKey: (k: string) => void;
   setStep: (s: WorkflowStep) => void;
   addComponentFile: (f: File) => void;
   removeComponentFile: (i: number) => void;
@@ -109,7 +107,6 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  apiKey: localStorage.getItem('gemini_api_key') || '',
   step: 'upload',
   componentFiles: [],
   assemblyFile: null,
@@ -134,7 +131,6 @@ export const useAppStore = create<AppState>((set) => ({
   loadingMsg: '',
   error: null,
 
-  setApiKey: (k) => { localStorage.setItem('gemini_api_key', k); set({ apiKey: k }); },
   setStep: (s) => set({ step: s }),
   addComponentFile: (f) => set((st) => ({ componentFiles: [...st.componentFiles, f] })),
   removeComponentFile: (i) => set((st) => ({ componentFiles: st.componentFiles.filter((_, j) => j !== i) })),
@@ -149,4 +145,6 @@ export const useAppStore = create<AppState>((set) => ({
   setLoading: (loading, msg = '') => set({ isLoading: loading, loadingMsg: msg }),
   setError: (e) => set({ error: e }),
 }));
+
+export const API = 'http://localhost:8000';
 

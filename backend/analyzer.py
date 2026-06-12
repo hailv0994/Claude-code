@@ -1,16 +1,11 @@
 """
-Google Gemini Vision — gọi REST API trực tiếp, không cần SDK.
-Free tier: 15 req/phút, 1500 req/ngày (gemini-1.5-flash)
+Google Gemini Vision — tự động detect model available với key của user.
 """
-import os
-import re
-import json
-import base64
-import httpx
+import os, re, json, base64, httpx
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-MODEL = "gemini-1.5-flash"
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
+BASE = "https://generativelanguage.googleapis.com/v1beta"
+_cached_model: str | None = None
 
 EXTRACT_PROMPT = """Analyze this engineering drawing and extract ALL welding-related information.
 
@@ -56,43 +51,49 @@ Return ONLY a JSON object with this exact structure (use null for missing values
 """
 
 
-def _mime_to_gemini(mime: str) -> str:
-    mapping = {
-        "image/jpeg": "image/jpeg",
-        "image/jpg":  "image/jpeg",
-        "image/png":  "image/png",
-        "image/webp": "image/webp",
-        "image/gif":  "image/gif",
-    }
-    return mapping.get(mime.lower(), "image/png")
+def _get_model() -> str:
+    """Tự động chọn model Gemini vision đầu tiên available với key hiện tại."""
+    global _cached_model
+    if _cached_model:
+        return _cached_model
+
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY chưa được thiết lập. Chạy: GEMINI_API_KEY=your_key uvicorn main:app --port 8000")
+
+    r = httpx.get(f"{BASE}/models", params={"key": GEMINI_API_KEY}, timeout=15)
+    r.raise_for_status()
+    models = r.json().get("models", [])
+
+    # Ưu tiên: flash models hỗ trợ generateContent
+    preferred = ["flash", "pro"]
+    for priority in preferred:
+        for m in models:
+            name = m.get("name", "")
+            methods = m.get("supportedGenerationMethods", [])
+            if priority in name and "generateContent" in methods:
+                model_id = name.split("/")[-1]
+                _cached_model = model_id
+                print(f"[Gemini] Dùng model: {model_id}")
+                return model_id
+
+    raise RuntimeError("Không tìm thấy model Gemini nào hỗ trợ generateContent với key này.")
 
 
 def analyze_drawing(image_bytes: bytes, mime_type: str, user_hint: str = "") -> dict:
-    """Gửi ảnh bản vẽ lên Gemini Vision và trả về thông số hàn dưới dạng JSON."""
-    if not GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY chưa được thiết lập trong môi trường.")
-
+    model = _get_model()
+    url = f"{BASE}/models/{model}:generateContent"
     b64 = base64.standard_b64encode(image_bytes).decode()
-    prompt = EXTRACT_PROMPT
-    if user_hint:
-        prompt += f"\n\nAdditional context from user: {user_hint}"
+    prompt = EXTRACT_PROMPT + (f"\n\nAdditional context: {user_hint}" if user_hint else "")
 
     payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {"inline_data": {"mime_type": _mime_to_gemini(mime_type), "data": b64}},
-            ]
-        }],
+        "contents": [{"parts": [
+            {"text": prompt},
+            {"inline_data": {"mime_type": mime_type, "data": b64}},
+        ]}],
         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1500},
     }
 
-    resp = httpx.post(
-        GEMINI_URL,
-        params={"key": GEMINI_API_KEY},
-        json=payload,
-        timeout=60,
-    )
+    resp = httpx.post(url, params={"key": GEMINI_API_KEY}, json=payload, timeout=60)
     resp.raise_for_status()
     text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     text = re.sub(r'^```json\s*', '', text)

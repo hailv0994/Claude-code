@@ -1,10 +1,8 @@
 import { useCallback, useState } from 'react';
-import { useAppStore } from '../../store/appStore';
-import { analyzeDrawing, mergeResults } from '../../lib/gemini';
+import { useAppStore, API } from '../../store/appStore';
 
 export default function Step1Upload() {
   const {
-    apiKey, setApiKey,
     componentFiles, addComponentFile, removeComponentFile,
     assemblyFile, setAssemblyFile,
     userHint, setUserHint,
@@ -12,7 +10,6 @@ export default function Step1Upload() {
     isLoading, loadingMsg,
   } = useAppStore();
 
-  const [showKey, setShowKey] = useState(false);
   const [dragComp, setDragComp] = useState(false);
   const [dragAsm, setDragAsm] = useState(false);
 
@@ -28,18 +25,22 @@ export default function Step1Upload() {
   }, [setAssemblyFile]);
 
   const handleAnalyze = async () => {
-    if (!apiKey.trim()) { setError('Vui lòng nhập Gemini API key trước.'); return; }
     if (componentFiles.length === 0) { setError('Vui lòng upload ít nhất 1 bản vẽ linh kiện.'); return; }
     setError(null);
     setLoading(true, 'Đang phân tích bản vẽ bằng Gemini AI...');
     try {
-      const compResult = await analyzeDrawing(apiKey, componentFiles[0], userHint) as any;
-      let merged = compResult;
-      if (assemblyFile) {
-        const asmResult = await analyzeDrawing(apiKey, assemblyFile, userHint) as any;
-        merged = mergeResults(compResult, asmResult);
+      const fd = new FormData();
+      fd.append('component', componentFiles[0]);
+      if (assemblyFile) fd.append('assembly', assemblyFile);
+      fd.append('user_hint', userHint);
+
+      const res = await fetch(`${API}/api/analyze`, { method: 'POST', body: fd });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || res.statusText);
       }
-      setAnalysis(merged);
+      const data = await res.json();
+      setAnalysis(data);
       setStep('confirm');
     } catch (e: any) {
       setError(e.message || 'Phân tích thất bại');
@@ -55,37 +56,12 @@ export default function Step1Upload() {
         <p className="text-gray-500 mt-1">Phân tích bản vẽ hàn · Mô phỏng nhiệt FEM · Tối ưu thông số</p>
       </div>
 
-      {/* API Key */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-semibold text-blue-800">
-            Gemini API Key <span className="font-normal text-blue-500">(miễn phí)</span>
-          </label>
-          <a
-            href="https://aistudio.google.com/app/apikey"
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs text-blue-600 underline"
-          >
-            Lấy key miễn phí →
-          </a>
-        </div>
-        <div className="flex gap-2">
-          <input
-            type={showKey ? 'text' : 'password'}
-            className="flex-1 border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
-            placeholder="Dán API key vào đây (AIzaSy...)"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
-          <button
-            onClick={() => setShowKey(!showKey)}
-            className="px-3 py-2 border border-blue-300 rounded-lg text-xs text-blue-600 hover:bg-blue-100"
-          >
-            {showKey ? 'Ẩn' : 'Hiện'}
-          </button>
-        </div>
-        <p className="text-xs text-blue-500">Key được lưu trên trình duyệt của bạn, không gửi đi đâu khác ngoài Gemini.</p>
+      {/* Backend status hint */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+        Cần chạy backend trước:{' '}
+        <code className="bg-amber-100 px-1 rounded text-xs">
+          cd backend &amp;&amp; GEMINI_API_KEY=your_key uvicorn main:app --port 8000
+        </code>
       </div>
 
       {/* Component drawings */}
@@ -156,7 +132,7 @@ export default function Step1Upload() {
 
       <button
         onClick={handleAnalyze}
-        disabled={componentFiles.length === 0 || !apiKey.trim() || isLoading}
+        disabled={componentFiles.length === 0 || isLoading}
         className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
       >
         {isLoading ? (
