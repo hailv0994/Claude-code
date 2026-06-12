@@ -1,5 +1,5 @@
-const MODEL = 'gemini-2.0-flash';
-const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const MODEL = 'gemini-1.5-flash';
+const BASE = 'https://generativelanguage.googleapis.com/v1/models';
 
 const EXTRACT_PROMPT = `Analyze this engineering drawing and extract ALL welding-related information.
 
