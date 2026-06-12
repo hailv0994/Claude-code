@@ -1,20 +1,20 @@
 """
-Claude Vision API — analyze engineering drawing images to extract welding info.
+Google Gemini Vision — gọi REST API trực tiếp, không cần SDK.
+Free tier: 15 req/phút, 1500 req/ngày (gemini-1.5-flash)
 """
-import anthropic
-import base64
+import os
 import re
-from pathlib import Path
+import json
+import base64
+import httpx
 
-client = anthropic.Anthropic()
-
-SYSTEM_PROMPT = """You are an expert welding engineer analyzing technical engineering drawings.
-Extract welding-related information precisely. Always respond in valid JSON only, no markdown.
-"""
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+MODEL = "gemini-1.5-flash"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
 
 EXTRACT_PROMPT = """Analyze this engineering drawing and extract ALL welding-related information.
 
-Return ONLY a JSON object with this exact structure (use null for missing values):
+Return ONLY a JSON object with this exact structure (use null for missing values, no markdown):
 {
   "material": {
     "grade": "e.g. SS400, A36, SUS304",
@@ -55,56 +55,53 @@ Return ONLY a JSON object with this exact structure (use null for missing values
 }
 """
 
-def encode_image(image_bytes: bytes, mime_type: str) -> str:
-    return base64.standard_b64encode(image_bytes).decode('utf-8')
+
+def _mime_to_gemini(mime: str) -> str:
+    mapping = {
+        "image/jpeg": "image/jpeg",
+        "image/jpg":  "image/jpeg",
+        "image/png":  "image/png",
+        "image/webp": "image/webp",
+        "image/gif":  "image/gif",
+    }
+    return mapping.get(mime.lower(), "image/png")
+
 
 def analyze_drawing(image_bytes: bytes, mime_type: str, user_hint: str = "") -> dict:
-    """
-    Send drawing image to Claude Vision and extract welding parameters.
-    """
-    b64 = encode_image(image_bytes, mime_type)
+    """Gửi ảnh bản vẽ lên Gemini Vision và trả về thông số hàn dưới dạng JSON."""
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY chưa được thiết lập trong môi trường.")
 
+    b64 = base64.standard_b64encode(image_bytes).decode()
     prompt = EXTRACT_PROMPT
     if user_hint:
         prompt += f"\n\nAdditional context from user: {user_hint}"
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1500,
-        system=SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": mime_type,
-                            "data": b64,
-                        },
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ],
-    )
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": _mime_to_gemini(mime_type), "data": b64}},
+            ]
+        }],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1500},
+    }
 
-    import json
-    text = message.content[0].text.strip()
-    # Remove markdown code blocks if present
+    resp = httpx.post(
+        GEMINI_URL,
+        params={"key": GEMINI_API_KEY},
+        json=payload,
+        timeout=60,
+    )
+    resp.raise_for_status()
+    text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     text = re.sub(r'^```json\s*', '', text)
     text = re.sub(r'\s*```$', '', text)
     return json.loads(text)
 
 
 def merge_drawing_results(component_result: dict, assembly_result: dict) -> dict:
-    """
-    Merge info from component drawing + assembly drawing.
-    Assembly drawing takes priority for joint/welding info.
-    Component drawing takes priority for material/dimensions.
-    """
-    merged = {
+    return {
         'material': component_result.get('material') or assembly_result.get('material'),
         'joint': assembly_result.get('joint') or component_result.get('joint'),
         'welding_symbol': assembly_result.get('welding_symbol') or component_result.get('welding_symbol'),
@@ -124,9 +121,5 @@ def merge_drawing_results(component_result: dict, assembly_result: dict) -> dict
             (component_result.get('warnings') or []) +
             (assembly_result.get('warnings') or [])
         ),
-        'sources': {
-            'component': component_result,
-            'assembly': assembly_result,
-        }
+        'sources': {'component': component_result, 'assembly': assembly_result},
     }
-    return merged
