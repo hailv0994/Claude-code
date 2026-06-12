@@ -38,27 +38,33 @@ function calcHeatInput(current: number, voltage: number, travelSpeed: number, pr
 }
 
 // ──────────────────────────────────────────────────────────────
-// Wire Feed Speed (GMAW/FCAW) — simplified linear approximation
-// WFS (mm/min) = I / (k_d × d²)  where d = diameter mm
+// Wire Feed Speed (GMAW/FCAW)
+// Empirical burnoff model: WFS = I × 27.5 × (1.2/d)²  [mm/min]
+// Calibrated: d=1.2mm, I=200A → ~5500 mm/min (≈5.5 m/min) ✓
 // ──────────────────────────────────────────────────────────────
 function calcWireFeedSpeed(process: string, current: number, diameter: number): number | null {
   if (process !== 'GMAW' && process !== 'FCAW') return null;
-  // Empirical: WFS ≈ I / (0.000785 × d²) * 0.001  simplified
-  const kd = 0.065 * diameter * diameter;
-  return Math.round(current / kd * 10);
+  const k = 27.5 * (1.2 / diameter) ** 2;
+  return Math.round(current * k);
 }
 
 // ──────────────────────────────────────────────────────────────
 // Deposit rate (kg/hr)
+// Based on WFS and wire cross-section area
 // ──────────────────────────────────────────────────────────────
 function calcDepositRate(process: string, current: number, diameter: number): number | null {
   if (process === 'GTAW') return null;
-  const density = process === 'SAW' ? 7.85 : 7.85; // g/cm³ steel
-  const area = Math.PI * (diameter / 2) ** 2 * 0.01; // cm²
-  const burnoffRate = current * 0.3; // cm/min — very rough approx
-  const depositEfficiency = { SMAW: 0.65, GMAW: 0.95, FCAW: 0.85, SAW: 1.0, GTAW: 0.98 };
-  const eff = depositEfficiency[process as keyof typeof depositEfficiency] ?? 0.80;
-  const rate = area * burnoffRate * density * 60 * eff / 1000; // kg/hr
+  const wfs = calcWireFeedSpeed(process, current, diameter);
+  if (!wfs) {
+    // SMAW/SAW: approximate from current
+    const smawEff = process === 'SMAW' ? 0.65 : 1.0;
+    return Math.round(current * 0.012 * smawEff * 10) / 10;
+  }
+  // kg/hr = WFS (mm/min) × area (mm²) × density (g/mm³) × 60 × eff / 1e6
+  const area = Math.PI * (diameter / 2) ** 2; // mm²
+  const density = 7.85e-3; // g/mm³ = 7.85 g/cm³
+  const eff = process === 'FCAW' ? 0.85 : 0.95;
+  const rate = wfs * area * density * 60 * eff / 1000; // kg/hr
   return Math.round(rate * 10) / 10;
 }
 
