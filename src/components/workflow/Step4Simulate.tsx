@@ -1,7 +1,7 @@
-
-import { useAppStore, API } from '../../store/appStore';
+import { useAppStore } from '../../store/appStore';
 import SectionCard from '../layout/SectionCard';
 import WeldModel3D from '../visualization/WeldModel3D';
+import { optimizeParameters } from '../../lib/fem/optimizer';
 
 export default function Step4Simulate() {
   const {
@@ -11,29 +11,37 @@ export default function Step4Simulate() {
 
   const handleOptimize = async () => {
     setError(null);
-    setLoading(true, 'Running FEM inverse optimization (Nelder-Mead)...');
+    setLoading(true, 'Đang tối ưu thông số hàn (FEM + Nelder-Mead)... 0%');
+
+    // Run in a macrotask so UI can update first
+    await new Promise(r => setTimeout(r, 50));
+
     try {
-      const body = {
-        material_type: analysis?.material?.type ?? 'carbon_steel',
-        plate_thickness: analysis?.material?.thickness_mm ?? 12,
-        plate_width: analysis?.dimensions?.part_width_mm ?? 100,
-        process: machine.process,
-        preheat_temp: 20,
-        max_current: machine.maxCurrent,
-        targets: qualityTargets,
-      };
-      const res = await fetch(`${API}/api/fem/optimize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      const result = await new Promise<ReturnType<typeof optimizeParameters>>((resolve, reject) => {
+        setTimeout(() => {
+          try {
+            const r = optimizeParameters({
+              materialType: analysis?.material?.type ?? 'carbon_steel',
+              plateThickness: analysis?.material?.thickness_mm ?? 12,
+              plateWidth: analysis?.dimensions?.part_width_mm ?? 100,
+              process: machine.process,
+              preheatTemp: 20,
+              maxCurrent: machine.maxCurrent,
+              targets: qualityTargets,
+              onProgress: (pct) => {
+                setLoading(true, `Đang tối ưu thông số hàn (FEM + Nelder-Mead)... ${pct}%`);
+              },
+            });
+            resolve(r);
+          } catch (e) { reject(e); }
+        }, 10);
       });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      setFEMResult(data.fem_result);
-      setOptimalParams(data.optimal_params);
+
+      setFEMResult(result.femResult);
+      setOptimalParams(result.optimalParams);
       setStep('results');
     } catch (e: any) {
-      setError(e.message || 'Optimization failed');
+      setError(e.message || 'Tối ưu thất bại');
     } finally {
       setLoading(false);
     }
@@ -54,27 +62,27 @@ export default function Step4Simulate() {
   return (
     <div className="max-w-3xl mx-auto space-y-5">
       <div>
-        <h2 className="text-xl font-bold text-gray-900">3D Model & Simulation</h2>
-        <p className="text-gray-500 text-sm mt-1">Review the joint model, set quality targets, then run the FEM optimization</p>
+        <h2 className="text-xl font-bold text-gray-900">Mô hình 3D & Mô phỏng FEM</h2>
+        <p className="text-gray-500 text-sm mt-1">Xem mô hình mối hàn, đặt yêu cầu chất lượng, rồi chạy tối ưu</p>
       </div>
 
-      <SectionCard title="Joint Preview — Before Welding">
+      <SectionCard title="Mô hình 3D — Trước khi hàn">
         <div className="h-64 rounded-lg overflow-hidden">
           <WeldModel3D showWeld={false} />
         </div>
       </SectionCard>
 
-      <SectionCard title="Joint Preview — After Welding">
+      <SectionCard title="Mô hình 3D — Sau khi hàn">
         <div className="h-64 rounded-lg overflow-hidden">
           <WeldModel3D showWeld={true} />
         </div>
       </SectionCard>
 
-      <SectionCard title="Quality Targets" subtitle="Constraints for the FEM inverse optimization">
+      <SectionCard title="Yêu cầu chất lượng" subtitle="Ràng buộc cho bài toán tối ưu FEM">
         <div className="grid grid-cols-3 gap-4">
-          <QField label="Max HAZ Width" unit="mm" key_="haz_width_max" />
-          <QField label="Min Fusion Depth" unit="mm" key_="fusion_depth_min" />
-          <QField label="Max Peak Temp" unit="°C" key_="peak_temp_max" />
+          <QField label="HAZ tối đa" unit="mm" key_="haz_width_max" />
+          <QField label="Chiều sâu ngấu tối thiểu" unit="mm" key_="fusion_depth_min" />
+          <QField label="Nhiệt độ đỉnh tối đa" unit="°C" key_="peak_temp_max" />
         </div>
       </SectionCard>
 
@@ -82,7 +90,7 @@ export default function Step4Simulate() {
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
           <div className="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-2" />
           <p className="text-sm text-blue-700">{loadingMsg}</p>
-          <p className="text-xs text-blue-500 mt-1">This may take 1–3 minutes…</p>
+          <p className="text-xs text-blue-500 mt-1">Chạy trực tiếp trong trình duyệt, không cần server…</p>
         </div>
       )}
 
@@ -92,14 +100,14 @@ export default function Step4Simulate() {
           disabled={isLoading}
           className="flex-1 py-2.5 border border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors"
         >
-          Back
+          Quay lại
         </button>
         <button
           onClick={handleOptimize}
           disabled={isLoading}
           className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors"
         >
-          {isLoading ? 'Optimizing…' : 'Run FEM Optimization'}
+          {isLoading ? 'Đang tối ưu…' : 'Chạy tối ưu FEM'}
         </button>
       </div>
     </div>
