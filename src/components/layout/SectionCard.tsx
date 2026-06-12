@@ -1,20 +1,20 @@
-import type { ReactNode } from 'react';
+import React from 'react';
 
 interface Props {
   title: string;
-  icon?: ReactNode;
-  children: ReactNode;
+  subtitle?: string;
+  children: React.ReactNode;
   className?: string;
 }
 
-export function SectionCard({ title, icon, children, className = '' }: Props) {
+export default function SectionCard({ title, subtitle, children, className = '' }: Props) {
   return (
-    <div className={`card ${className}`}>
-      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
-        {icon && <span className="text-blue-600">{icon}</span>}
-        <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">{title}</h3>
+    <div className={`bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden ${className}`}>
+      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+        <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
+        {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
       </div>
-      {children}
+      <div className="p-6">{children}</div>
     </div>
   );
 }
