@@ -48,6 +48,24 @@ The shell is already set up. Change these numbers, not the structure.
   The normal `<name>.html` (CDN importmap) opens by double-click on any machine with internet — that is the one to
   send unless the user says the room has no network.
 
-## Performance
+## Performance — the model must not stutter
+
+A model that drags at 15 fps is a failed model, whatever it looks like in a still. Post-processing costs
+roughly **5× a plain render**, so the shell draws straight to the screen while the camera or the mechanism
+moves and puts the composed frame up ~180 ms after everything settles (`markMoving()` / `draw(fast)`).
+Keep it that way: never call `composer.render()` on every frame.
+
+The usual killers, in order:
+
+1. **`transmission` on any material.** Each transmissive object re-renders the whole scene. `MAT.glass` is a
+   cheap reflective pane; `MAT.glass_real` is the refractive one — use it for a lens or a hero still, never for
+   a machine window you merely look through.
+2. Post-processing left on during interaction.
+3. Shadow map above 2048, or several shadow-casting lights. One key light casts; the rest do not.
+4. Triangles over ~1.5 M, usually from 96-segment cylinders on parts 10 px wide.
+
+`node scripts/qa.mjs <model>.html` prints `interaction: X ms/frame while moving` and fails over 12 ms.
+
+## Performance (old notes)
 
 Render-on-demand is already wired (`needsRender`). Keep triangles < 1.5 M, shadow map 2048, `setPixelRatio(min(dpr,2))`. If the laptop in the meeting room struggles: drop GTAO first, bloom second, never the environment.

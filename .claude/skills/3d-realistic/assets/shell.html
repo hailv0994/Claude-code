@@ -99,7 +99,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(32, 1, 1, 60000); // 32mm-ish: product lens, low distortion
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.075;
-controls.addEventListener('change', () => needsRender = true);
+controls.addEventListener('change', () => markMoving());
 
 /* ---------- environment (image-based lighting = the realism backbone) ---------- */
 const pmrem = new THREE.PMREMGenerator(renderer);
@@ -135,7 +135,7 @@ function applyEnv(name){
 
 /* ---------- lights: IBL + 1 shadow key + rim. Never ambient-only. ---------- */
 const key = new THREE.DirectionalLight(0xfff6ea, 2.6);
-key.castShadow = true; key.shadow.mapSize.set(2048, 2048);
+key.castShadow = true; key.shadow.mapSize.set(1536, 1536);
 key.shadow.radius = 5; key.shadow.blurSamples = 16; key.shadow.bias = -0.0004;
 scene.add(key, key.target);
 const rim = new THREE.DirectionalLight(0xdfe9ff, 0.85); scene.add(rim);
@@ -196,7 +196,12 @@ mk('brass',        {color:0xd3af67, metalness:1, roughness:0.28});
 mk('plastic_abs',  {color:0xe8e9eb, metalness:0, roughness:0.44, clearcoat:0.18, clearcoatRoughness:0.3});
 mk('nylon_matte',  {color:0x3b3f44, metalness:0, roughness:0.78}, {repeat:6});
 mk('rubber',       {color:0x1c1e20, metalness:0, roughness:0.92}, {repeat:7});
-mk('glass',        {color:0xffffff, metalness:0, roughness:0.035, transmission:1, ior:1.52,
+// Glass: transmission forces an extra full scene render per frame — far too costly for a
+// window you only look through. Default is a cheap reflective pane; MAT.glass_real is the
+// refractive one, for a hero still or a lens where refraction is the point.
+mk('glass',        {color:0xdfe6ea, metalness:0, roughness:0.06, transparent:true, opacity:0.22,
+                    envMapIntensity:1.7, side:THREE.DoubleSide, specularIntensity:1}, {rough:0});
+mk('glass_real',   {color:0xffffff, metalness:0, roughness:0.035, transmission:1, ior:1.52,
                     thickness:3, specularIntensity:1}, {rough:0});
 mk('oil',          {color:0xc7a04e, metalness:0, roughness:0.12, transmission:0.86, ior:1.47,
                     thickness:12}, {rough:0});
@@ -321,8 +326,15 @@ try {
   composer._ao = ao;
 } catch(e){ console.warn('post-fx off:', e.message); composer = null; }
 
-/* ---------- loop: render on demand, so a projector laptop stays cool ---------- */
+/* ---------- loop: render on demand + adaptive quality ----------
+   Post-processing (GTAO + bloom + MSAA) costs ~5x a plain render. Dragging must stay
+   smooth, so while the camera or the mechanism moves we render straight to the screen and
+   put the composed frame up once everything settles. ------------------------------------ */
 let needsRender = true, spinning = false, clock = new THREE.Clock();
+let moving = false, lastMove = 0, hiDirty = false;
+const MOVE_SETTLE = 180;   // ms of stillness before the pretty frame is drawn
+function markMoving(){ moving = true; lastMove = performance.now(); needsRender = true; }
+function draw(fast){ (composer && !fast) ? composer.render() : renderer.render(scene, camera); }
 function resize(){
   const w = stage.clientWidth || 1, h = stage.clientHeight || 1;
   renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix();
@@ -332,10 +344,13 @@ function resize(){
 addEventListener('resize', resize);
 function tick(){
   const dt = clock.getDelta();
-  if (spinning){ root.rotation.y += dt*0.35; needsRender = true; }
-  if (MODEL_INFO.update && MODEL_INFO.update(dt)) needsRender = true;
+  if (spinning){ root.rotation.y += dt*0.35; markMoving(); }
+  if (MODEL_INFO.update && MODEL_INFO.update(dt)) markMoving();
   if (controls.update()) needsRender = true;
-  if (needsRender){ needsRender = false; composer ? composer.render() : renderer.render(scene, camera); }
+  const now = performance.now();
+  if (moving && now - lastMove > MOVE_SETTLE){ moving = false; hiDirty = true; }
+  if (needsRender){ needsRender = false; draw(moving); if (moving) hiDirty = true; }
+  else if (hiDirty && !moving){ hiDirty = false; draw(false); }
   requestAnimationFrame(tick);
 }
 
@@ -397,7 +412,7 @@ function select(i){ selected = i; PARTS.forEach((p,k) => p._ui.nm.classList.togg
 function capture(scale = 2){
   const w = stage.clientWidth, h = stage.clientHeight, dpr = renderer.getPixelRatio();
   renderer.setPixelRatio(scale); if (composer) composer.setSize(w, h);
-  composer ? composer.render() : renderer.render(scene, camera);
+  draw(false);
   const url = renderer.domElement.toDataURL('image/png');
   renderer.setPixelRatio(dpr); if (composer) composer.setSize(w, h); needsRender = true;
   const a = document.createElement('a'); a.href = url;
@@ -418,9 +433,13 @@ window.__model = {
             collide:p.collide, moving:p.moving, fastener:p.fastener, decal:p.decal, qty:p.qty}; }); },
   overall(){ const b = new THREE.Box3().setFromObject(root), s = new THREE.Vector3(); b.getSize(s);
     return [+s.x.toFixed(2), +s.y.toFixed(2), +s.z.toFixed(2)]; },
-  setTime(t){ if (MODEL_INFO.setTime){ MODEL_INFO.setTime(t); needsRender = true;
-    composer ? composer.render() : renderer.render(scene, camera); } },
-  render(){ needsRender = false; composer ? composer.render() : renderer.render(scene, camera); }
+  setTime(t){ if (MODEL_INFO.setTime){ MODEL_INFO.setTime(t); needsRender = true; draw(false); } },
+  render(fast = false){ needsRender = false; moving = false; hiDirty = false; draw(fast); },
+  perf(n = 20){                                  // ms/frame, GPU-synced: [interactive, still]
+    const gl = renderer.getContext(), run = f => { draw(f); gl.finish();
+      const t = performance.now(); for (let i = 0; i < n; i++){ draw(f); gl.finish(); }
+      return +((performance.now() - t)/n).toFixed(2); };
+    return {interactive: run(true), still: run(false), triangles: renderer.info.render.triangles}; }
 };
 
 /* ---------- go ---------- */

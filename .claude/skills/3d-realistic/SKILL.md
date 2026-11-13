@@ -41,6 +41,8 @@ Rules that keep it cheap and fast:
 
 Ask at most **one** question, and only if the answer changes the geometry. Otherwise choose, build, and list the choices in the delivery note.
 
+**The one blocking stop.** If SCOUT comes back with no drawing and no photo *of the exact model asked for* — only of a sibling, a successor or "a machine of that class" — **stop and ask the user for photos before building.** A model built from a lookalike will be rejected on sight however well it is made, and that costs far more than the question. Say plainly: "X-10i has no catalogue online; the closest I found is the XT-6. Send me 3 photos (front, 3/4, machining area) and I build the real one — or I build the XT-6-based approximation and label it as such." Never ship a lookalike without that label.
+
 ## 1 · SCOUT — find the real thing
 
 Input: the subject name/model number. Output: `spec.yaml` + up to 6 reference images in `ref/`.
@@ -106,6 +108,7 @@ node .claude/skills/3d-realistic/scripts/qa.mjs <model>.html --out qa --sheet
 | collision | two solid parts interpenetrate by > 12 % of the smaller one (static and at every `--time`) |
 | floating | a part touches no other part and does not sit on the floor |
 | materials | Lambert/Phong/Basic anywhere, tone mapping off, no environment, shadows off |
+| performance | > 12 ms/frame while the camera moves (1280×800, software GL) — it will stutter on an office laptop |
 | likeness | inspector compares `qa/sheet.png` with `ref/*.jpg` — proportions, part count, stance |
 
 The inspector reports **only failures**, as `file:line → what is wrong → the fix`, max 15 lines, and never rewrites the model itself unless the fix is a one-line number.

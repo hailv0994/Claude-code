@@ -16,7 +16,8 @@ All keys exist in the shell's `MAT`. Clone before changing colour: `matClone('pa
 | `plastic_abs` | moulded cover, housing | 0 | 0.44 | clearcoat 0.18 |
 | `nylon_matte` | cable tie, bushing, 3D-printed jig part | 0 | 0.78 | |
 | `rubber` | seal, foot, hose, belt | 0 | 0.92 | 0x1c1e20 |
-| `glass` | lens, window, sight glass | 0 | 0.035 | transmission 1, ior 1.52, `thickness` = real wall in mm |
+| `glass` | machine window, guard, cover pane | 0 | 0.06 | transparent, opacity 0.22, high envMapIntensity — **no transmission**, so it costs nothing |
+| `glass_real` | lens, sight glass, anything refraction is the point of | 0 | 0.035 | transmission 1, ior 1.52, `thickness` = real wall in mm. One per scene at most — each transmissive object re-renders the whole scene |
 | `oil` | hydraulic oil in a cutaway | 0 | 0.12 | transmission 0.86, ior 1.47 |
 
 ## Why a render looks fake, in material terms

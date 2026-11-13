@@ -123,13 +123,18 @@ const audit = ready ? await page.evaluate(({TOL, TIMES}) => {
   return r;
 }, {TOL, TIMES}) : null;
 
+/* ---- interaction cost: dragging must stay smooth on a plain office laptop ---- */
+const perf = ready ? await page.evaluate(() => window.__model.perf ? window.__model.perf(10) : null) : null;
+
 /* ---- canonical views + one contact sheet ---- */
 const shots = [];
 if (ready) for (const v of VIEWS) {
   await page.evaluate(n => { window.__model.setView(n); window.__model.render(); }, v);
   await page.waitForTimeout(140);
   const f = path.join(OUT, v + '.png');
-  await page.locator('#stage canvas').screenshot({path: f}); shots.push(f);
+  // clip, not locator.screenshot(): a canvas that keeps drawing never counts as "stable"
+  const bb = await page.locator('#stage canvas').boundingBox();
+  await page.screenshot({path: f, clip: bb, timeout: 120000}); shots.push(f);
 }
 if (ready && has('sheet')) {
   const sheet = await page.evaluate(async views => {
@@ -152,6 +157,7 @@ if (ready && has('sheet')) {
 }
 await browser.close(); srv.close();
 
+const PERF_LIMIT = 12;   // ms/frame while the camera moves, 1280x800, software GL
 /* ---- report ---- */
 const L = [], fail = [];
 L.push(`# QA — ${path.basename(file)}`);
@@ -173,9 +179,14 @@ if (audit) {
   if (audit.look.meshesWithoutMaps > audit.nParts * 1.5) L.push(`- ${audit.look.meshesWithoutMaps} meshes have no roughness/colour map — flat CG look`);
   if (audit.notes.length) L.push('\n## WARN no spec declared\n- ' + audit.notes.slice(0,12).join('\n- '));
 }
+if (perf) {
+  L.push(`- interaction: ${perf.interactive} ms/frame while moving · ${perf.still} ms/frame for the composed still`);
+  if (perf.interactive > PERF_LIMIT) { fail.push('performance');
+    L.push(`\n## FAIL performance\n- ${perf.interactive} ms/frame while dragging (limit ${PERF_LIMIT}). Usual causes: a material with \`transmission\` (each one re-renders the whole scene — use MAT.glass, not glass_real), post-processing left on during interaction, shadow map over 2048, or > 1.5 M triangles.`); }
+}
 L.push(`\n## ${fail.length ? 'RESULT: FAIL — ' + fail.join(', ') : 'RESULT: PASS'}`);
 if (shots.length) L.push(`\nviews: ${shots.map(s => path.basename(s)).join(', ')}${has('sheet') ? ', sheet.png' : ''} in ${OUT}`);
 fs.writeFileSync(path.join(OUT, 'qa.md'), L.join('\n'));
-fs.writeFileSync(path.join(OUT, 'qa.json'), JSON.stringify({errors, audit}, null, 1));
+fs.writeFileSync(path.join(OUT, 'qa.json'), JSON.stringify({errors, audit, perf}, null, 1));
 console.log(L.join('\n'));
 process.exit(fail.length ? 1 : 0);
