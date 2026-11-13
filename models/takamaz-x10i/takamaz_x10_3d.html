@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TAKAMAZ X-10</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --line:#e2e5ea; --ink:#1b1f24; --dim:#6b7280;
+    --accent:#c8102e; --sbw:272px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);
+    font:14px/1.45 "Meiryo UI",Meiryo,Arial,"Segoe UI",sans-serif;color:var(--ink)}
+  #stage{position:fixed;inset:0 0 0 var(--sbw)}
+  #stage canvas{display:block;width:100%;height:100%}
+  #sb{position:fixed;top:0;left:0;bottom:0;width:var(--sbw);background:var(--panel);
+    border-right:1px solid var(--line);display:flex;flex-direction:column;z-index:10}
+  #sb h1{margin:0;padding:12px 14px 10px;font-size:15px;font-weight:700;border-bottom:1px solid var(--line)}
+  #sb h1 small{display:block;font-weight:400;font-size:11.5px;color:var(--dim);margin-top:2px}
+  #sb .body{flex:1;overflow:auto;padding:10px 12px 16px}
+  .grp{margin-bottom:14px}
+  .grp>.lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:0 0 6px}
+  .row{display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap}
+  button{font:inherit;font-size:12.5px;padding:5px 9px;border:1px solid var(--line);background:#fff;
+    border-radius:5px;color:var(--ink);cursor:pointer}
+  button:hover{background:#f0f2f5}
+  button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  input[type=range]{flex:1;min-width:0;accent-color:var(--accent)}
+  input[type=color]{width:24px;height:20px;padding:0;border:1px solid var(--line);border-radius:3px;background:#fff}
+  .pname{flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+  .pname.off{color:#aeb4bd;text-decoration:line-through}
+  .pname.sel{color:var(--accent);font-weight:700}
+  .eye{width:22px;text-align:center;padding:2px 0;font-size:12px}
+  .kpi{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;border-bottom:1px dotted var(--line)}
+  .kpi b{font-variant-numeric:tabular-nums}
+  #hud{position:fixed;right:14px;bottom:12px;font-size:12px;color:var(--dim);
+    background:rgba(255,255,255,.78);padding:4px 9px;border-radius:5px;z-index:9}
+  .hidehud #sb,.hidehud #hud{display:none}
+  .hidehud #stage{left:0}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<aside id="sb">
+  <h1><span data-t="title">TAKAMAZ X-10</span><small data-t="sub">CNC lathe · Takamatsu Machinery · 1560 x 1300 x 1720 mm</small></h1>
+  <div class="body">
+    <div class="grp"><div class="row" id="lang"></div></div>
+    <div class="grp" id="g-view"><p class="lbl" data-t="l_view">View</p><div class="row" id="views"></div></div>
+    <div class="grp" id="g-sim" hidden><p class="lbl" data-t="l_sim">Simulation</p><div class="row" id="sim"></div></div>
+    <div class="grp" id="g-kpi" hidden><p class="lbl" data-t="l_kpi">Cycle time</p><div id="kpis"></div></div>
+    <div class="grp"><p class="lbl" data-t="l_look">Look</p>
+      <div class="row"><span style="width:62px;font-size:12px" data-t="l_exp">Exposure</span><input id="exp" type="range" min="0.4" max="2" step="0.02" value="0.92"></div>
+      <div class="row" id="envs"></div>
+      <div class="row"><button id="png">PNG 2x</button><button id="spin" data-t="l_spin">Turntable</button></div>
+    </div>
+    <div class="grp"><p class="lbl" data-t="l_parts">Parts</p>
+      <div class="row"><button id="allon" data-t="l_allon">Show all</button><button id="reset" data-t="l_reset">Reset</button><span id="pcount" style="font-size:11.5px;color:var(--dim)"></span></div>
+      <div id="parts"></div>
+    </div>
+  </div>
+</aside>
+<div id="hud"></div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.180.0/build/three.module.js",
+ "three/addons/":"https://unpkg.com/three@0.180.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
+import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
+import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
+import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
+import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
+
+/* ============================================================
+   SCENE UNIT = 1 mm.  All dimensions below are millimetres.
+   ============================================================ */
+const Q = new URLSearchParams(location.search);
+if (Q.get('hud') === '0') document.body.classList.add('hidehud');
+
+/* ---------- renderer ---------- */
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({antialias:false, alpha:false, preserveDrawingBuffer:true,
+  powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;   // never render untonemapped
+renderer.toneMappingExposure = 0.92;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.VSMShadowMap;          // soft, no acne on curved parts
+stage.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, 1, 1, 60000); // 32mm-ish: product lens, low distortion
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.075;
+controls.addEventListener('change', () => markMoving());
+
+/* ---------- environment (image-based lighting = the realism backbone) ---------- */
+const pmrem = new THREE.PMREMGenerator(renderer);
+const ENVS = {
+  studio: () => pmrem.fromScene(new RoomEnvironment(), 0.04).texture,
+  soft:   () => pmrem.fromScene(gradientEnv(0xf3f4f6, 0xc9ced6), 0.06).texture,
+  shop:   () => pmrem.fromScene(gradientEnv(0xdfe4ea, 0x7c838d), 0.05).texture
+};
+function gradientEnv(top, bottom){
+  const s = new THREE.Scene();
+  const g = new THREE.SphereGeometry(1000, 32, 16);
+  const m = new THREE.ShaderMaterial({side:THREE.BackSide, uniforms:{
+      a:{value:new THREE.Color(top)}, b:{value:new THREE.Color(bottom)}},
+    vertexShader:'varying float h;void main(){h=normalize(position).y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader:'uniform vec3 a,b;varying float h;void main(){gl_FragColor=vec4(mix(b,a,smoothstep(-.25,.65,h))*1.6,1.);}'});
+  s.add(new THREE.Mesh(g, m));
+  // two bright soft panels = believable speculars on metal
+  const panel = (x,y,z,w,hh,i)=>{const p=new THREE.Mesh(new THREE.PlaneGeometry(w,hh),
+    new THREE.MeshBasicMaterial({color:0xffffff}));p.material.color.multiplyScalar(i);
+    p.position.set(x,y,z);p.lookAt(0,0,0);s.add(p);};
+  panel(-420, 520, 330, 700, 420, 7); panel(480, 300, -260, 500, 500, 3.2);
+  return s;
+}
+let envName = 'studio';
+function applyEnv(name){
+  envName = name;
+  const t = ENVS[name]();
+  scene.environment = t;
+  scene.environmentIntensity = 1.0;
+  scene.background = new THREE.Color(name === 'shop' ? 0x8f969e : 0xdfe3e7);
+  needsRender = true;
+}
+
+/* ---------- lights: IBL + 1 shadow key + rim. Never ambient-only. ---------- */
+const key = new THREE.DirectionalLight(0xfff6ea, 2.6);
+key.castShadow = true; key.shadow.mapSize.set(1536, 1536);
+key.shadow.radius = 5; key.shadow.blurSamples = 16; key.shadow.bias = -0.0004;
+scene.add(key, key.target);
+const rim = new THREE.DirectionalLight(0xdfe9ff, 0.85); scene.add(rim);
+const fill = new THREE.HemisphereLight(0xffffff, 0x9fa6ad, 0.25); scene.add(fill);
+
+/* ---------- procedural imperfection maps (kills the "CG plastic" look) ---------- */
+function noiseCanvas(size, cells, contrast){
+  // seamless smooth value-noise: wear, smudge and cast grain in the roughness channel
+  const rnd=(x,y,o)=>{let t=(x*73856093^y*19349663^o*83492791)+0x6D2B79F5;
+    t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return((t^t>>>14)>>>0)/4294967296;};
+  const sm=t=>t*t*(3-2*t);
+  const oct=(u,v,f,o)=>{const x=u*f,y=v*f,xi=Math.floor(x),yi=Math.floor(y),tx=sm(x-xi),ty=sm(y-yi);
+    const w=(a,b)=>rnd(((a%f)+f)%f,((b%f)+f)%f,o);
+    return (w(xi,yi)*(1-tx)+w(xi+1,yi)*tx)*(1-ty)+(w(xi,yi+1)*(1-tx)+w(xi+1,yi+1)*(tx))*ty;};
+  const c=document.createElement('canvas'); c.width=c.height=size;
+  const x=c.getContext('2d'), d=x.createImageData(size,size);
+  for(let i=0;i<size*size;i++){
+    const u=(i%size)/size, v=((i/size)|0)/size;
+    let n=0, amp=1, f=cells, tot=0;
+    for(let o=0;o<4;o++){ n+=amp*oct(u,v,f,o); tot+=amp; amp*=0.5; f*=2; }
+    const val = 1 - contrast*0.5 + (n/tot - 0.5)*contrast;   // biased to 1: the map multiplies roughness
+    const g = Math.max(0,Math.min(255, val*255))|0;
+    d.data[i*4]=d.data[i*4+1]=d.data[i*4+2]=g; d.data[i*4+3]=255;
+  }
+  x.putImageData(d,0,0);
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const ROUGH = noiseCanvas(256, 5, 0.34);   // roughness variation: smudges, wear, cast grain
+const BRUSH = (()=>{                         // brushed-metal anisotropy direction
+  const c=document.createElement('canvas');c.width=c.height=512;const x=c.getContext('2d');
+  x.fillStyle='#8080ff';x.fillRect(0,0,512,512);
+  for(let i=0;i<1400;i++){const y=Math.random()*512,a=10+Math.random()*26;
+    x.strokeStyle=`rgba(${128+(Math.random()*2-1)*5|0},${128+(Math.random()*2-1)*5|0},255,${a/255})`;
+    x.beginPath();x.moveTo(0,y);x.lineTo(512,y+(Math.random()*2-1));x.stroke();}
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;})();
+
+/* ---------- material library (measured-ish PBR, see references/materials.md) ---------- */
+const MAT = {};
+function mk(name, p, {rough = 0.12, repeat = 2} = {}){
+  const m = new THREE.MeshPhysicalMaterial(p);
+  if (rough > 0){ m.roughnessMap = ROUGH.clone(); m.roughnessMap.needsUpdate = true;
+    m.roughnessMap.repeat.set(repeat, repeat); m.roughness = Math.max(0.02, m.roughness); }
+  m.envMapIntensity = p.envMapIntensity ?? 1.0;
+  MAT[name] = m; return m;
+}
+mk('paint_gloss',  {color:0xc8102e, metalness:0, roughness:0.30, clearcoat:1, clearcoatRoughness:0.07});
+mk('paint_satin',  {color:0x2f3338, metalness:0, roughness:0.46, clearcoat:0.55, clearcoatRoughness:0.26});
+mk('alu_anodized', {color:0x9ba1a7, metalness:1, roughness:0.38});
+mk('alu_brushed',  {color:0xa8aeb4, metalness:1, roughness:0.30, anisotropy:0.45});
+MAT.alu_brushed.anisotropyMap = BRUSH; BRUSH.repeat.set(1, 6);
+mk('steel_machined',{color:0xbcc1c7, metalness:1, roughness:0.22});
+mk('steel_cast',   {color:0x7b8086, metalness:1, roughness:0.64}, {repeat:5});
+mk('zinc_plated',  {color:0xb7bbc0, metalness:1, roughness:0.42});
+mk('black_oxide',  {color:0x2a2c2f, metalness:1, roughness:0.52});
+mk('brass',        {color:0xd3af67, metalness:1, roughness:0.28});
+mk('plastic_abs',  {color:0xe8e9eb, metalness:0, roughness:0.44, clearcoat:0.18, clearcoatRoughness:0.3});
+mk('nylon_matte',  {color:0x3b3f44, metalness:0, roughness:0.78}, {repeat:6});
+mk('rubber',       {color:0x1c1e20, metalness:0, roughness:0.92}, {repeat:7});
+mk('glass',        {color:0xdfe6ea, metalness:0, roughness:0.06, transparent:true, opacity:0.22,
+                    envMapIntensity:1.7, side:THREE.DoubleSide, specularIntensity:1}, {rough:0});
+mk('glass_real',   {color:0xffffff, metalness:0, roughness:0.035, transmission:1, ior:1.52,
+                    thickness:3, specularIntensity:1}, {rough:0});
+mk('oil',          {color:0xc7a04e, metalness:0, roughness:0.12, transmission:0.86, ior:1.47,
+                    thickness:12}, {rough:0});
+const matClone = (n, color) => { const m = MAT[n].clone(); if (color !== undefined) m.color.set(color); return m; };
+
+/* ---------- ground: shadow catcher + contact AO (objects must sit, not float) ---------- */
+const ground = new THREE.Mesh(new THREE.CircleGeometry(1, 96).rotateX(-Math.PI/2),
+  new THREE.MeshPhysicalMaterial({color:0xb9bec4, roughness:0.5, metalness:0,
+    roughnessMap:ROUGH.clone(), envMapIntensity:0.9}));
+ground.material.roughnessMap.repeat.set(9,9);
+ground.receiveShadow = true; scene.add(ground);
+const contact = (()=>{ const c=document.createElement('canvas');c.width=c.height=256;
+  const x=c.getContext('2d'),g=x.createRadialGradient(128,128,8,128,128,126);
+  g.addColorStop(0,'rgba(0,0,0,.42)');g.addColorStop(.45,'rgba(0,0,0,.22)');g.addColorStop(1,'rgba(0,0,0,0)');
+  x.fillStyle=g;x.fillRect(0,0,256,256);
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false}));
+  m.renderOrder=-1; scene.add(m); return m; })();
+
+/* ---------- part registry: every QA script and the sidebar read this ---------- */
+const PARTS = [];           // {name, vi, obj, spec:[L,W,H] mm, qty}
+const root = new THREE.Group(); scene.add(root);
+function part(name, obj, opt = {}){
+  obj.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+  (opt.parent || root).add(obj);
+  obj.name = name;
+  PARTS.push({name, vi: opt.vi || name, obj, spec: opt.spec || null, qty: opt.qty || 1,
+              collide: opt.collide !== false, moving: !!opt.moving,
+              fastener: !!opt.fastener, decal: !!opt.decal});
+  return obj;
+}
+const box = (w,h,d,r=Math.min(w,h,d)*0.035) => new RoundedBoxGeometry(w,h,d,2,Math.max(0.2,Math.min(r, Math.min(w,h,d)/2.2)));
+const cyl = (d,h,seg=48) => new THREE.CylinderGeometry(d/2,d/2,h,seg,1,false);
+// exact OD/ID/H ring with 0.4 chamfers (lathe = real dimensions, no bevel creep)
+const tube = (od,id,h,seg=64,c=0.4) => {
+  const R=od/2, r=id/2, y0=-h/2, y1=h/2;
+  const pts=[[r,y0],[R-c,y0],[R,y0+c],[R,y1-c],[R-c,y1],[r+c,y1],[r,y1-c],[r,y0+c],[r+c,y0],[r,y0]]
+    .map(([x,y])=>new THREE.Vector2(x,y));
+  const g=new THREE.LatheGeometry(pts,seg); g.computeVertexNormals(); return g;
+};
+// ISO 4017 hex bolt: head height 0.7d, across-flats 1.6d (M5 -> s=8, k=3.5)
+const hexBolt = (d, len) => {
+  const grp = new THREE.Group(), k = d*0.7, R = d*0.8/Math.cos(Math.PI/6);
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(R,R,k,6), MAT.zinc_plated);
+  head.position.y = k/2; grp.add(head);
+  const sh = new THREE.Mesh(cyl(d, len, 24), MAT.zinc_plated); sh.position.y = -len/2; grp.add(sh);
+  return grp;
+};
+// ISO 4762 socket-head cap screw (black oxide or steel) with recessed hex socket
+const socketBolt = (d, len, mat = MAT.black_oxide) => {
+  const grp = new THREE.Group(), k = d * 0.85, hd = d * 1.5;
+  const head = new THREE.Mesh(tube(hd, d * 0.72, k, 20, 0.35), mat);
+  head.position.y = k / 2; grp.add(head);
+  const core = new THREE.Mesh(cyl(d * 0.74, k * 0.45, 6), MAT.black_oxide);
+  core.position.y = k * 0.25; grp.add(core);
+  if (len > 0) {
+    const sh = new THREE.Mesh(cyl(d, len, 16), mat);
+    sh.position.y = -len / 2; grp.add(sh);
+  }
+  return grp;
+};
+
+/* ============================================================
+   ===== MODEL =====  TAKAMAZ X-10 with full industrial enclosure logic
+   ============================================================ */
+function build(){
+  const D = Math.PI/180;
+  /* ================= palette (sampled from ref/x10_real_3q.png & close-ups) ================= */
+  const BLUE=0x1f4f99, BLUE_D=0x183f7c, TURRET_BLUE=0x236294, IVORY=0xd6d3c8, IVORY_D=0xc5c1b4,
+        CHAR=0x3b4147, CHAR_D=0x2c3136, LGREY=0xb2b6ba, DARK=0x24272b, ORANGE=0xd95f1e,
+        CREAM_KEY=0xd7c6a3;
+  const Mblue  = matClone('paint_gloss', BLUE),          // glossy enamel + clearcoat
+        MblueD = matClone('paint_gloss', BLUE_D),
+        MturretBlue = matClone('paint_gloss', TURRET_BLUE), // Takamaz turret housing blue-teal (Photo 2)
+        Mivory = matClone('paint_satin', IVORY),
+        MivoryD= matClone('paint_satin', IVORY_D),
+        Mchar  = matClone('paint_satin', CHAR),
+        McharD = matClone('paint_satin', CHAR_D),
+        Mgrey  = matClone('paint_satin', LGREY),
+        Morange= matClone('paint_gloss', ORANGE),
+        Mred   = matClone('plastic_abs', 0xd62429),
+        Mgreen = matClone('plastic_abs', 0x169c46),
+        Mamber = matClone('plastic_abs', 0xd98518),
+        Mcream = matClone('plastic_abs', CREAM_KEY),
+        Mgold  = matClone('brass', 0xeab308),            // TiN-coated carbide insert gold
+        Mcast  = MAT.steel_cast, Msteel = MAT.steel_machined, Mzinc = MAT.zinc_plated,
+        Mrub   = MAT.rubber, Mblk = MAT.black_oxide, Mglass = MAT.glass;
+
+  /* ================= helpers ================= */
+  const Me = (g,m)=>new THREE.Mesh(g,m);
+  const put = (o,x,y,z)=>{o.position.set(x,y,z); return o;};
+  const bxm = (x0,x1,y0,y1,z0,z1,m,r)=>put(Me(box(x1-x0,y1-y0,z1-z0,r===undefined?1.2:r),m),
+                                           (x0+x1)/2,(y0+y1)/2,(z0+z1)/2);
+  // corner-defined box part: design corners ARE the declared spec
+  const P = (name,vi,x0,x1,y0,y1,z0,z1,m,opt={},r)=>part(name, bxm(x0,x1,y0,y1,z0,z1,m,r),
+        Object.assign({vi, spec:[+(x1-x0).toFixed(2), +(z1-z0).toFixed(2), +(y1-y0).toFixed(2)]}, opt));
+  const ctex = (w,h,draw)=>{const c=document.createElement('canvas');c.width=w;c.height=h;
+    const x=c.getContext('2d'); draw(x,w,h);
+    const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=8; return t;};
+  const decal = (name,vi,w,h,x,y,z,tex,col)=>{
+    const m=matClone('paint_satin', col===undefined?0xffffff:col);
+    m.map=tex; m.transparent=true; m.roughness=0.34; m.clearcoat=0.5;
+    m.depthWrite=false; m.polygonOffset=true; m.polygonOffsetFactor=-3;
+    return part(name, put(Me(new THREE.PlaneGeometry(w,h),m),x,y,z), {vi, decal:true, collide:false});};
+  // louvre panel, centred on the origin, face towards local +Z
+  const louvre=(w,h,n,m)=>{
+    const g=new THREE.Group();
+    g.add(put(Me(box(w,h,8,0.6), matClone('paint_satin',0x1b1f22)),0,0,-6));
+    const pitch=h/n;
+    for(let i=0;i<n;i++){ const s=Me(box(w-16,5,17,0.8), m);
+      s.position.set(0, -h/2+pitch*(i+0.5), -3); s.rotation.x=-28*D; g.add(s); }
+    g.add(put(Me(box(w,10,6,0.6),m),0,h/2-5,-1)); g.add(put(Me(box(w,10,6,0.6),m),0,-h/2+5,-1));
+    g.add(put(Me(box(10,h,6,0.6),m),-w/2+5,0,-1)); g.add(put(Me(box(10,h,6,0.6),m),w/2-5,0,-1));
+    return g;};
+  const screw=(x,y,z,d,ry=0)=>{const g=new THREE.Group();
+    const h=Me(cyl(d||9,2.6,20), Mzinc); h.rotation.x=Math.PI/2; g.add(h);
+    const sl=Me(box((d||9)*0.6,0.9,1.4,0.2), Mblk); sl.position.z=1.3; g.add(sl);
+    g.rotation.y=ry;
+    return put(g,x,y,z);};
+  const eyebolt=(x,y,z)=>{const g=new THREE.Group();
+    g.add(Me(new THREE.TorusGeometry(26,7,12,28), Mzinc));
+    g.add(put(Me(cyl(24,18,20), Mzinc),0,-26,0));
+    return put(g,x,y,z);};
+
+  /* ============ key dimensions: photo scaled so overall height = 1720 mm ============
+     overall L(X) 1560 · W(Z) 1300 · H(Y) 1720 ; operator side = +Z, right hand = +X   */
+  const FR=642, PF=650, BK=-642, PB=-650;      // structure / panel faces, front and back
+  const PED_L=-700, PED_R=780, PED_T=535;
+  const DECK=745, SPY=1040, SPZ=100, TOPY=1420;
+  const anim=[];
+
+  /* ================= 1 · floor, blue pedestal ================= */
+  [[-600,470],[-600,-470],[40,470],[40,-470],[700,470],[700,-470]].forEach((p,i)=>{
+    const g=new THREE.Group();
+    g.add(Me(tube(90,22,30,32,1.0), Mcast));
+    g.add(put(Me(cyl(22,22,24), Mzinc),0,22,0));
+    g.add(put(Me(new THREE.CylinderGeometry(19,19,13,6), Mzinc),0,22,0));
+    part(`Levelling foot ${i+1}`, put(g,p[0],15,p[1]),
+         {vi:`Chân đế cân máy ${i+1}`, spec:[90,90,48]});
+  });
+  P('Base skirt','Váy chân đế', -680,760, 48,80, -580,580, McharD);
+  P('Base pedestal (blue)','Thân đế sơn xanh', PED_L,PED_R, 80,PED_T, BK,FR, Mblue, {}, 6);
+
+  P('Front centre panel','Tấm vỏ trước giữa', -470,300, 120,500, FR,PF, MblueD, {}, 2);
+  [[-452,138],[-452,482],[282,138],[282,482]].forEach((p,i)=>
+    part(`Front panel screw ${i+1}`, screw(p[0],p[1],PF-1), {vi:`Vít tấm trước ${i+1}`, fastener:true}));
+  decal('Instruction plate','Nhãn hướng dẫn bôi trơn', 150,105, 70,300, PF-0.01,
+    ctex(256,180,(x,w,h)=>{ x.fillStyle='#d9d7cf'; x.fillRect(0,0,w,h);
+      x.strokeStyle='#8e8b84'; x.lineWidth=3; x.strokeRect(3,3,w-6,h-6);
+      x.fillStyle='#23262a'; x.font='bold 17px Arial'; x.fillText('LUBRICATION',16,30);
+      x.font='13px Arial';
+      ['OIL  ISO VG 32','CHECK LEVEL DAILY','FILL TO UPPER LINE','DRAIN EVERY 2000 h','TAKAMATSU MACHINERY']
+        .forEach((s,i)=>x.fillText(s,16,58+i*22)); }));
+  part('Front vent grille', put(louvre(290,170,7,Mblue),505,385,PF-5.7),
+       {vi:'Lưới thông gió trước', spec:[290,17.4,170], collide:false});
+
+  /* chip / coolant service bay, low at the front right */
+  P('Coolant bay recess','Hốc dung dịch tưới nguội', 390,710, 90,290, FR-130,FR,
+    matClone('paint_satin',0x191c1f), {collide:false}, 1);
+  P('Coolant pump unit','Bơm dung dịch tưới nguội', 555,680, 110,235, FR-100,FR-25, Mgrey, {collide:false});
+  part('Coolant pump motor', put(Me(cyl(78,96,32), Mcast),617,258,FR-62),
+       {vi:'Mô tơ bơm dung dịch', spec:[78,78,96], collide:false});
+  P('Coolant solenoid block','Cụm van điện từ', 428,478, 110,215, FR-85,FR-40,
+    matClone('paint_satin',0x6a6f74), {collide:false});
+  part('Coolant feed hose', (()=>{ const c=new THREE.CatmullRomCurve3([
+      new THREE.Vector3(453,215,FR-62), new THREE.Vector3(470,272,FR-45),
+      new THREE.Vector3(540,250,FR-50), new THREE.Vector3(600,216,FR-62)]);
+      return Me(new THREE.TubeGeometry(c,40,9,14), Mrub);})(),
+      {vi:'Ống cấp dung dịch', spec:[160.3,35.5,74.3], collide:false});
+
+  /* ================= 2 · left front: amber lubrication box + gauge ================= */
+  (()=>{ const g=new THREE.Group();
+    g.add(bxm(-780,-700,180,520, 330,520, McharD, 2));
+    g.add(bxm(-780,-756,230,430, 352,498, Morange, 1.5));
+    g.add(bxm(-784,-700,492,520, 330,520, Mchar, 1.5));
+    g.add(put(Me(cyl(34,16,24), Mzinc),-740,528,425));
+    part('Lubrication unit', g, {vi:'Bộ bôi trơn (hộp cam)', spec:[84,190,356]});})();
+  (()=>{ const g=new THREE.Group(), x=-620, y=430;
+    const r=Me(tube(74,56,16,48,0.8), Mzinc); r.rotation.x=Math.PI/2; g.add(put(r,x,y,PF-12));
+    const dial=matClone('plastic_abs',0xffffff);
+    dial.map=ctex(256,256,(c,w,h)=>{ c.fillStyle='#ecebe5'; c.fillRect(0,0,w,h);
+      c.strokeStyle='#22262b'; c.lineWidth=5; c.beginPath();
+      for(let i=0;i<=10;i++){const a=(-210+i*24)*Math.PI/180;
+        c.moveTo(128+Math.cos(a)*102,128+Math.sin(a)*102); c.lineTo(128+Math.cos(a)*84,128+Math.sin(a)*84);}
+      c.stroke(); c.fillStyle='#22262b'; c.font='bold 22px Arial'; c.textAlign='center';
+      c.fillText('MPa',128,190);
+      c.strokeStyle='#b4151c'; c.lineWidth=8; c.beginPath(); c.moveTo(128,128);
+      c.lineTo(128+Math.cos(-1.0)*84,128+Math.sin(-1.0)*84); c.stroke(); });
+    g.add(put(Me(new THREE.CircleGeometry(28,48), dial),x,y,PF-6.6));
+    const gl=Me(cyl(56,2,48), Mglass); gl.rotation.x=Math.PI/2; g.add(put(gl,x,y,PF-5.2));
+    part('Pressure gauge', g, {vi:'Đồng hồ áp suất', spec:[74,16,74], collide:false});})();
+
+  /* ================= 3 · ivory deck band + machine name ================= */
+  P('Deck band (front apron)','Dải vỏ ngang thân trước', PED_L,400, PED_T,DECK, -260,FR, Mivory, {}, 3);
+  P('Deck band (rear apron)','Dải vỏ ngang thân sau', PED_L,180, PED_T,DECK, BK,-260, Mivory, {}, 3);
+  P('Deck joint strip','Nẹp khe ghép vỏ trước', PED_L,400, PED_T-4,PED_T+4, FR,FR+3, McharD, {collide:false},0.8);
+  P('Rear deck joint strip','Nẹp khe ghép vỏ sau', PED_L,760, PED_T-4,PED_T+4, BK-3,BK, McharD, {collide:false},0.8);
+  decal('TAKAMAZ X-10 name decal','Nhãn hiệu TAKAMAZ X-10', 650,94, -372,640, FR-0.01,
+    ctex(1040,150,(x,w,h)=>{ x.clearRect(0,0,w,h); x.fillStyle='#d95f1e'; x.textBaseline='alphabetic';
+      x.setTransform(1,0,-0.18,1,70,0);
+      x.font='900 86px "Arial Black", Arial, sans-serif'; x.fillText('TAKAMAZ', 0, 108);
+      x.font='900 124px Georgia, "Times New Roman", serif'; x.fillText('X-10', 540, 112); }));
+
+  /* ================= 4 · full-depth headstock enclosure & left/rear service covers ================= */
+  (()=>{ const s=new THREE.Shape();
+    const pts=[[640,747],[640,1098],[469,1367],[250,1418],[-640,1418],[-640,747]];
+    s.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++) s.lineTo(pts[i][0],pts[i][1]); s.closePath();
+    const g=new THREE.ExtrudeGeometry(s,{depth:636,bevelEnabled:true,bevelThickness:2,bevelSize:2,
+      bevelSegments:2,curveSegments:4});
+    g.translate(0,0,2); g.rotateY(-Math.PI/2); g.translate(-60,0,0);
+    part('Headstock cover', Me(g,Mivory), {vi:'Vỏ bao che cụm trục chính', spec:[640,1284,675]});})();
+
+  const faceA=Math.atan2(172,270);                       // 32.5 deg sloped window face
+  for(let i=0;i<4;i++){
+    const g=new THREE.Group();
+    g.add(Me(box(118,158,12,1.0), MivoryD));
+    g.add(put(Me(box(96,136,4,0.6), Mglass),0,0,5));
+    g.add(put(Me(box(100,140,3,0.5), matClone('paint_satin',0x6d7378)),0,0,-4));
+    g.position.set(-600+i*140, 1235+Math.sin(faceA)*7, 556+Math.cos(faceA)*7);
+    g.rotation.x=faceA;
+    part(`Inspection window ${i+1}`, g, {vi:`Cửa quan sát ${i+1}`, spec:[118,96.6,140.7], collide:false});
+  }
+  P('Headstock cover latch','Chốt vỏ ụ trục chính', -300,-250, 900,1010, FR,FR+14,
+    matClone('alu_anodized'), {collide:false}, 1);
+
+  P('Spindle belt cover','Nắp bảo trì puly & dây đai trái', -706,-700, 935,1375, -590,180, MivoryD, {collide:false}, 2);
+  part('Headstock end louvre', put(louvre(420,220,8,MivoryD),-708.5,1160,-205).rotateY(-Math.PI/2),
+       {vi:'Lưới thông gió đầu trái', spec:[17.4,420,220], collide:false});
+  P('Spindle motor shroud','Hộp bao che mô tơ trục chính', -776,-700, 555,915, -560,-200, McharD, {}, 3);
+  part('Motor shroud louvre', put(louvre(260,220,7,Mchar),-778.5,735,-380).rotateY(-Math.PI/2),
+       {vi:'Lưới gió hộp mô tơ trục chính', spec:[17.4,260,220], collide:false});
+  (()=>{ const g=new THREE.Group();
+    const b=Me(cyl(260,72,48), McharD); b.rotation.z=Math.PI/2; g.add(b);
+    for(let i=0;i<8;i++){ const f=Me(tube(268,256,4.5,48,0.5), Mchar); f.rotation.z=Math.PI/2;
+      f.position.x=-30+i*8.5; g.add(f);}
+    const cap=Me(tube(210,64,10,48,0.8), Mcast); cap.rotation.z=Math.PI/2; cap.position.x=-38; g.add(cap);
+    part('Spindle motor housing', put(g,-736,735,-380), {vi:'Vỏ mô tơ trục chính (bên trong)', spec:[80,268,268], collide:false});})();
+
+  P('Rear headstock panel','Nắp bảo trì sau ụ trục chính', -665,-95, 780,1380, BK-6,BK, MivoryD, {collide:false}, 2);
+  part('Rear headstock upper louvre', put(louvre(440,180,7,MivoryD),-380,1220,BK-8.5).rotateY(Math.PI),
+       {vi:'Lưới thoát nhiệt trên ụ trục chính', spec:[440,17.4,180], collide:false});
+  part('Rear headstock lower louvre', put(louvre(440,180,7,MivoryD),-380,930,BK-8.5).rotateY(Math.PI),
+       {vi:'Lưới thoát nhiệt dưới ụ trục chính', spec:[440,17.4,180], collide:false});
+  [[-645,800],[-645,1360],[-115,800],[-115,1360]].forEach((p,i)=>
+    part(`Rear headstock screw ${i+1}`, screw(p[0],p[1],BK-7,9,Math.PI), {vi:`Vít nắp sau ụ trục chính ${i+1}`, fastener:true}));
+
+  /* ================= 5 · machining chamber shell & rear drive/hydraulic enclosure ================= */
+  P('Chamber canopy','Mái che khoang gia công', -60,400, 1340,TOPY, -260,500, Mivory, {}, 3);
+  P('Chamber rear wall','Vách sau khoang gia công', -60,400, DECK,1340, -260,-238, Mgrey);
+  P('Rear drive enclosure','Vỏ khoang truyền động & thủy lực sau', -60,180, DECK,TOPY, BK,-260, Mivory, {}, 3);
+  P('Rear hydraulic access door','Cửa bảo trì khoang thủy lực & servo', -42,162, 780,1380, BK-6,BK, MivoryD, {collide:false}, 2);
+  part('Rear servo vent louvre', put(louvre(164,190,7,MivoryD),60,1215,BK-8.5).rotateY(Math.PI),
+       {vi:'Lưới thông gió khoang servo sau', spec:[164,17.4,190], collide:false});
+  P('Rear door pull handle','Tay nắm cửa khoang thủy lực', -22,-6, 1010,1110, BK-18,BK-6,
+    matClone('alu_anodized'), {collide:false}, 1);
+  (()=>{ const g=new THREE.Group();
+    g.add(bxm(20,110, 940,1040, BK-10,BK-5, McharD, 1));
+    g.add(bxm(30,100, 950,1030, BK-9,BK-6, Mglass, 0.5));
+    const pg=Me(cyl(46,12,32), Mzinc); pg.rotation.x=Math.PI/2; g.add(put(pg,65,990,BK-3));
+    part('Rear hydraulic sight window', g, {vi:'Cửa thăm áp suất thủy lực sau', spec:[90,13,100], collide:false});})();
+  (()=>{ const g=new THREE.Group();
+    g.add(bxm(10,120, 585,685, BK-42,BK, McharD, 2));
+    g.add(put(Me(cyl(36,75,24), Mglass), 40,565,BK-22));
+    g.add(put(Me(cyl(36,75,24), Mglass), 90,565,BK-22));
+    g.add(put(Me(cyl(32,24,24), Morange), 40,697,BK-22));
+    const g1=Me(cyl(28,10,24), Mzinc); g1.rotation.x=Math.PI/2; g.add(put(g1,65,635,BK-45));
+    part('Rear pneumatic FRL unit', g, {vi:'Bộ lọc điều áp khí nén (FRL) sau', spec:[110,50,181.5], collide:false});})();
+
+  P('Chamber splash lip','Gờ chắn văng dung dịch', -60,400, DECK,838, 600,FR, MivoryD);
+  P('Chip chute','Máng dẫn phoi', -60,400, DECK,792, 300,595, matClone('alu_brushed'));
+  (()=>{ const g=new THREE.Group(), m=matClone('alu_brushed',0xa9aeb3);
+    g.add(bxm(-60,400, DECK,1180, -238,-224, m, 1.0));
+    g.add(bxm(-30,360, DECK,1120, -224,-212, m, 1.0));
+    g.add(bxm(  0,320, DECK,1055, -212,-200, m, 1.0));
+    part('Telescopic way cover', g, {vi:'Che băng trượt kiểu xếp', spec:[460,38,435]});})();
+
+  /* ================= 6 · REBUILT SPINDLE, 6" 3-JAW HYDRAULIC CHUCK, STEPPED WORKPIECE & LOC-LINE COOLANT ================= */
+  const spin=new THREE.Group(); spin.position.set(0,SPY,SPZ); root.add(spin);
+
+  // Spindle nose labyrinth seal & bolted flange collar on bulkhead (X = -60..-22)
+  (()=>{ const g=new THREE.Group();
+    const housing=Me(tube(196,68,26,64,1.5), Mcast); housing.rotation.z=Math.PI/2; housing.position.x=-47; g.add(housing);
+    const labyrinth=Me(tube(168,66,18,64,1.2), Msteel); labyrinth.rotation.z=Math.PI/2; labyrinth.position.x=-29; g.add(labyrinth);
+    for(let i=0;i<8;i++){
+      const a=i*45*D;
+      const b=socketBolt(8,12,Mblk); b.rotation.z=-Math.PI/2;
+      b.position.set(-34, Math.cos(a)*82, Math.sin(a)*82); g.add(b);
+    }
+    part('Spindle nose housing', put(g,0,SPY,SPZ), {vi:'Đầu trục chính & bích chặn dầu', spec:[40,196,196], collide:false});})();
+
+  // Authentic Kitagawa B-206 6-inch 3-Jaw Power Chuck Body with jaw guide slots, bolt circle, and grease fittings
+  (()=>{ const g=new THREE.Group();
+    const profile=[[26,-38],[87,-38],[90,-35],[90,-8],[88.5,-8],[88.5,-4],[90,-4],[90,34],[86,38],[34,38],[30,34],[30,-38],[26,-38]]
+      .map(a=>new THREE.Vector2(a[0],a[1]));
+    const bodyGeo=new THREE.LatheGeometry(profile,64);
+    bodyGeo.rotateZ(-Math.PI/2); bodyGeo.translate(16,0,0);
+    g.add(Me(bodyGeo, Msteel));
+
+    // Dark recessed center through-bore sleeve
+    const bore=Me(tube(62,50,74,48,0.8), Mblk);
+    bore.rotation.z=Math.PI/2; bore.position.x=16; g.add(bore);
+
+    // 3 radial master-jaw T-slots machined into the front face of the chuck + 6 front mounting socket bolts
+    for(let i=0;i<3;i++){
+      const a=i*120*D;
+      const slotGrp=new THREE.Group();
+      slotGrp.rotation.x=a;
+      // Dark T-slot channel
+      slotGrp.add(put(Me(box(14,56,22,0.6), Mblk), 48.5, 58, 0));
+      // Hardened master-jaw serration gibs inside slot
+      slotGrp.add(put(Me(box(12,50,6,0.4), Mcast), 50, 58, -9));
+      slotGrp.add(put(Me(box(12,50,6,0.4), Mcast), 50, 58,  9));
+      // Peripheral grease nipple / chuck sensor plug on outer cylinder
+      const plug=Me(cyl(10,6,16), Mblk);
+      plug.position.set(18, 89, 0);
+      slotGrp.add(plug);
+      g.add(slotGrp);
+    }
+    for(let i=0;i<6;i++){
+      const a=(i*60+30)*D;
+      const sb=socketBolt(9,16,Mblk);
+      sb.rotation.z=-Math.PI/2;
+      sb.position.set(54, Math.cos(a)*62, Math.sin(a)*62);
+      g.add(sb);
+    }
+    part('Chuck body (6 in, 3 jaw)', g,
+         {vi:'Thân mâm cặp thủy lực 3 chấu 6"', spec:[83.7,180,182], moving:true, collide:false, parent:spin});})();
+
+  // 3 hard jaws seated in the chuck's radial T-slots, gripping the Ø60 bar at r=30.
+  // Chuck face is at x=54; radius is the local +Y, tangential is the local Z.
+  for(let i=0;i<3;i++){
+    const g=new THREE.Group();
+    const Mjaw=matClone('steel_machined',0x9aa0a7);
+    // the T-slot itself, sunk into the chuck face
+    g.add(put(Me(box(5,92,54,0.3), matClone('black_oxide',0x1a1d20)), 52.5, 66, 0));
+    // master jaw: rides in the slot, T tongue underneath
+    g.add(put(Me(box(16,86,48,0.6), Mblk), 46, 58, 0));
+    g.add(put(Me(box(26,86,44,1.0), Mjaw), 67, 58, 0));
+    // serrated joint face between master jaw and top jaw
+    for(let t=0;t<6;t++) g.add(put(Me(box(27,1.8,42,0.2), Mblk), 67.5, 34+t*11, 0));
+    // top (hard) jaw: outer step, then the gripping step whose inner face is exactly r=30
+    g.add(put(Me(box(30,40,40,1.0), Mjaw), 80, 76, 0));
+    g.add(put(Me(box(30,26,36,0.8), Mjaw), 80, 43, 0));
+    // 30° lead chamfer on the gripping nose
+    const ch=Me(box(30,14,36,0.5), Mjaw); ch.position.set(80,31,0); ch.rotation.z=0.45; g.add(ch);
+    // 2 counterbored cap screws clamping the top jaw down onto the master jaw
+    for(let k=0;k<2;k++){ const bo=socketBolt(11,26,Mblk); bo.rotation.z=-Math.PI/2;
+      bo.position.set(97, 48+k*34, 0); g.add(bo); }
+    g.rotation.x = i*120*D;
+    part(`Chuck jaw ${i+1}`, g, {vi:`Chấu cặp bậc ${i+1}`, moving:true, collide:false, parent:spin});
+  }
+
+  // Stepped Machined Workpiece Bar Ø60 with turned OD step, chamfer, and center-drilled bore
+  part('Workpiece bar Ø60', (()=>{
+    const g=new THREE.Group();
+    const p=[[0,40],[30,40],[30,115],[28,117],[23,117],[23,168],[21,171],[6,171],[6,142],[0,138]]
+      .map(a=>new THREE.Vector2(a[0],a[1]));
+    const latheGeo=new THREE.LatheGeometry(p,48);
+    latheGeo.rotateZ(-Math.PI/2);
+    g.add(Me(latheGeo, Msteel));
+    // Gold/dark un-machined bar stock ring near chuck jaws
+    const rawRing=Me(tube(60.6,58,42,48,0.6), Mcast);
+    rawRing.rotation.z=Math.PI/2; rawRing.position.x=68;
+    g.add(rawRing);
+    return g;
+  })(), {vi:'Phôi thép tiện bậc Ø60', spec:[131,60.6,60.6], moving:true, collide:false, parent:spin});
+
+  // Articulated Blue & Orange Loc-Line Segmented Coolant Hose Assembly mounted on Spindle Bulkhead (Photo 1 & 2)
+  (()=>{
+    const g=new THREE.Group();
+    const MlocBlue = matClone('plastic_abs', 0x1e56b8);
+    const MlocOrange = matClone('plastic_abs', 0xe8631c);
+
+    // Cylindrical aluminum distribution block on bulkhead wall (X = -60, Y = 1235, Z = 85)
+    const distBlock = Me(cyl(56, 52, 32), matClone('alu_anodized', 0xbec3c9));
+    distBlock.rotation.z = Math.PI/2;
+    distBlock.position.set(-34, 1235, 85);
+    g.add(distBlock);
+
+    // Orange base adapter fittings
+    const baseAdapter1 = Me(cyl(24, 18, 20), MlocOrange);
+    baseAdapter1.rotation.z = Math.PI/2;
+    baseAdapter1.position.set(-2, 1235, 85);
+    g.add(baseAdapter1);
+
+    // Upper long articulated blue Loc-Line hose (14 ball-and-socket segments arching toward chuck/turret)
+    const upperCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(6, 1235, 85),
+      new THREE.Vector3(55, 1242, 105),
+      new THREE.Vector3(105, 1222, 122),
+      new THREE.Vector3(135, 1175, 125),
+      new THREE.Vector3(138, 1125, 112)
+    ]);
+    const upperPts = upperCurve.getSpacedPoints(14);
+    for(let i=0; i<upperPts.length; i++){
+      const p = upperPts[i];
+      const seg = Me(new THREE.SphereGeometry(11.5, 18, 14), i===0 ? MlocOrange : MlocBlue);
+      seg.position.copy(p);
+      g.add(seg);
+    }
+    // Orange flared nozzle at end of upper hose
+    const nozzle1 = Me(new THREE.ConeGeometry(7, 20, 18), MlocOrange);
+    nozzle1.position.set(136, 1098, 106);
+    nozzle1.rotation.z = 168*D;
+    nozzle1.rotation.x = 14*D;
+    g.add(nozzle1);
+
+    // Lower short articulated blue/orange Loc-Line hose aimed straight at the chuck jaws
+    const lowerCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-34, 1192, 125),
+      new THREE.Vector3(2, 1185, 142),
+      new THREE.Vector3(38, 1165, 146),
+      new THREE.Vector3(64, 1138, 136)
+    ]);
+    const lowerPts = lowerCurve.getSpacedPoints(8);
+    for(let i=0; i<lowerPts.length; i++){
+      const p = lowerPts[i];
+      const seg = Me(new THREE.SphereGeometry(10.5, 16, 12), i===0 ? MlocOrange : MlocBlue);
+      seg.position.copy(p);
+      g.add(seg);
+    }
+    const nozzle2 = Me(new THREE.ConeGeometry(11, 30, 20), MlocOrange);
+    nozzle2.position.set(78, 1118, 128);
+    nozzle2.rotation.z = 142*D;
+    nozzle2.rotation.y = -18*D;
+    g.add(nozzle2);
+
+    part('Coolant line & Loc-Line nozzles', g,
+         {vi:'Cụm vòi tưới nguội đốt khớp cầu Loc-Line', spec:[209.5,99.8,177.6], collide:false});
+  })();
+
+  /* ================= 7 · REBUILT SLANT-BED SADDLE, BLUE TURRET HOUSING & 8-STATION OCTAGONAL TURRET (PHOTO 2) ================= */
+  // Curled metallic swarf/chips scattered along the bottom of the chamber & slant bed (as seen in Photo 2)
+  (()=>{
+    const swarfGrp = new THREE.Group();
+    const chipMat1 = matClone('steel_machined', 0xadb4bc);
+    const chipMat2 = matClone('black_oxide', 0x48505a);
+    // Deterministic pseudo-random generator so chips look organic and identical every load
+    let seed = 42;
+    const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+    for(let i=0; i<85; i++){
+      const rMaj = 4.5 + rnd()*6.5;
+      const rMin = 1.1 + rnd()*1.4;
+      const chip = Me(new THREE.TorusGeometry(rMaj, rMin, 6, 12, Math.PI*(1.1 + rnd()*0.7)), i%3===0 ? chipMat2 : chipMat1);
+      const band = i < 45 ? 0 : 1;
+      const cx = band===0 ? (115 + rnd()*65) : (210 + rnd()*175);
+      const cz = band===0 ? (-80 + rnd()*340) : (60 + rnd()*230);
+      const cy = DECK + 6 + rnd()*14;
+      chip.position.set(cx, cy, cz);
+      chip.rotation.set(rnd()*6.28, rnd()*6.28, rnd()*6.28);
+      swarfGrp.add(chip);
+    }
+    part('Machining swarf & metal chips', swarfGrp,
+         {vi:'Phoi sắt xoắn trên băng máy', spec:[286.8,368.0,43.3], collide:false});
+  })();
+
+  const sad=new THREE.Group(); root.add(sad);
+
+  // Slant-bed cross slide saddle & stainless telescopic way covers
+  P('Cross slide saddle','Bàn trượt ngang (Slant-bed)', 195,398, DECK,995, -145,275, Mcast,
+    {moving:true, collide:false, parent:sad}, 4);
+  P('Slide way wiper','Gạt phoi băng trượt', 192,398, 995,1010, -145,275,
+    Mblk, {moving:true, parent:sad, collide:false});
+
+  // Authentic Takamaz Blue-Teal Turret Housing with top sculpted recess & bottom black socket bolts (Photo 2)
+  (()=>{
+    const hGrp = new THREE.Group();
+    // Main blue cast housing body
+    hGrp.add(bxm(296, 405, 1008, 1278, -110, 145, MturretBlue, 5));
+    // Sculpted upper bevel / recess step on top of the blue housing (visible in Photo 2)
+    hGrp.add(bxm(304, 398, 1276, 1312, -88, 122, MturretBlue, 4));
+    // Characteristic oval/scoop pocket on front-upper face of the blue turret housing (Photo 2)
+    const scoop = Me(cyl(46, 16, 24), matClone('paint_gloss', 0x1b4e78));
+    scoop.rotation.x = Math.PI/2;
+    scoop.position.set(348, 1218, 140);
+    hGrp.add(scoop);
+
+    // Row of 4 black-oxide socket-head cap bolts along the bottom front edge of the blue turret housing (Photo 2)
+    for(let i=0; i<4; i++){
+      const b = socketBolt(10, 14, Mblk);
+      b.rotation.x = Math.PI/2;
+      b.position.set(308 + i*28, 1026, 146);
+      hGrp.add(b);
+    }
+
+    // Dark steel base mounting flange under the blue housing
+    hGrp.add(bxm(288, 406, 996, 1012, -116, 152, Mblk, 2));
+    part('Turret drive housing (blue)', hGrp,
+         {vi:'Thân ụ đài dao sơn xanh Takamaz', spec:[118,268,316], moving:true, collide:false, parent:sad});
+  })();
+
+  // Front-mounted dark machined steel Hydraulic Valve Manifold Block + Coiled Black Hydraulic Hose (Photo 2)
+  (()=>{
+    const mGrp = new THREE.Group();
+    // Stepped dark-steel manifold block bolted to front of blue turret housing
+    mGrp.add(bxm(292, 366, 1086, 1146, 144, 184, Mblk, 2));
+    mGrp.add(bxm(306, 352, 1072, 1160, 144, 174, matClone('steel_cast', 0x3b4046), 1.5));
+    // Fitting block on right of manifold
+    mGrp.add(bxm(366, 388, 1102, 1148, 144, 176, Mblk, 1.5));
+    // Socket bolts on manifold face
+    [[314,1150],[344,1150],[314,1082],[344,1082]].forEach(([bx,by])=>{
+      const sb = socketBolt(7, 10, Msteel);
+      sb.rotation.x = Math.PI/2;
+      sb.position.set(bx, by, 184);
+      mGrp.add(sb);
+    });
+    // Helical coiled black hydraulic/coolant hose snaking from manifold to the right (Photo 2)
+    const coilPts = [];
+    const numTurns = 9.5;
+    for(let i=0; i<=120; i++){
+      const u = i / 120;
+      const ang = u * numTurns * Math.PI * 2;
+      const hx = 384 + u * 62;
+      const hy = 1118 - u * 28 + Math.cos(ang) * (u < 0.15 ? u*80 : 14);
+      const hz = 162 + Math.sin(ang) * (u < 0.15 ? u*80 : 14);
+      coilPts.push(new THREE.Vector3(hx, hy, hz));
+    }
+    const coilCurve = new THREE.CatmullRomCurve3(coilPts);
+    mGrp.add(Me(new THREE.TubeGeometry(coilCurve, 120, 4.2, 10, false), Mrub));
+
+    part('Turret hydraulic manifold & coiled hose', mGrp,
+         {vi:'Cụm van dầu đài dao & dây tuy-ô xoắn', spec:[158.0,46.1,88.0], moving:true, collide:false, parent:sad});
+  })();
+
+  part('Z-axis ballscrew', (()=>{const s=Me(cyl(32,420,24), Msteel); s.rotation.z=Math.PI/2;
+      return put(s,250,DECK+55,-170);})(),
+      {vi:'Vít me bi trục Z', spec:[420,32,32], moving:true, collide:false, parent:sad});
+
+  // 8-Station Octagonal Turret Disc + White Perforated Center Cap + 8 Detailed Tool Holders (Photo 2)
+  const idx=new THREE.Group(); idx.position.set(0,1150,10); sad.add(idx);
+  (()=>{
+    const tGrp = new THREE.Group();
+    // True Octagonal (8-sided) heavy machined steel turret disc (X = 232..294)
+    const octDisc = Me(new THREE.CylinderGeometry(142, 142, 62, 8), Msteel);
+    octDisc.rotation.z = Math.PI/2;
+    octDisc.rotation.x = 22.5 * D; // Flat octagonal faces aligned with the 8 stations
+    octDisc.position.x = 263;
+    tGrp.add(octDisc);
+
+    // Back collar ring mating with blue housing
+    const backRing = Me(tube(256, 180, 12, 48, 1.0), Mblk);
+    backRing.rotation.z = Math.PI/2;
+    backRing.position.x = 292;
+    tGrp.add(backRing);
+
+    // Iconic White/Silver Perforated Circular Center Flange Cap on Left Face of Turret Disc (Photo 2)
+    const whiteCapMat = matClone('paint_satin', 0xedeff2);
+    const centerCap = Me(tube(108, 22, 10, 48, 1.0), whiteCapMat);
+    centerCap.rotation.z = Math.PI/2;
+    centerCap.position.x = 229;
+    tGrp.add(centerCap);
+
+    // Center dark plug + 8 radial perforation holes on the white cap (matching Photo 2)
+    const centerPlug = Me(cyl(24, 11, 24), Mblk);
+    centerPlug.rotation.z = Math.PI/2;
+    centerPlug.position.x = 229;
+    tGrp.add(centerPlug);
+
+    for(let k=0; k<8; k++){
+      const a = k * 45 * D;
+      const hole = Me(cyl(13, 12, 16), Mblk);
+      hole.rotation.z = Math.PI/2;
+      hole.position.set(228.5, Math.cos(a)*36, Math.sin(a)*36);
+      tGrp.add(hole);
+    }
+
+    part('Turret disc (8 station)', tGrp,
+         {vi:'Đĩa đài dao bát giác 8 vị trí & nắp bích trắng', spec:[75.5,371.1,371.1], moving:true, collide:false, parent:idx});
+  })();
+
+  // 8 Heavy-Duty Tool Stations around the Octagonal Turret Perimeter (Photo 2)
+  // Station 1 is positioned at the upper-front active angle (pointing toward the operator/chuck like Photo 2)
+  // The turret axis sits at idx-local (0,0,0); the spindle centreline is at local y=-110, z=+90,
+  // 142 mm away. Station 1 is turned to face it, and every tool tip is set at r=112 so that the
+  // active tool just touches the Ø60 bar (142 - 30 = 112). Shanks run axially, towards the chuck.
+  const a0 = Math.atan2(90, -110), RTIP = 112;
+  const insert=(x,y,z,r,rot)=>{const m=Me(new THREE.CylinderGeometry(r,r,4.2,4), Mgold);
+    m.rotation.set(0,rot||0,Math.PI/2); return put(m,x,y,z);};
+  for(let k=0;k<8;k++){
+    const a = a0 + k*45*D;
+    const g = new THREE.Group();
+    // holder seat clamped on the octagon flat (disc r=142, flat at ~131)
+    g.add(put(Me(box(60,30,74,1.2), Msteel), 258, 146, 0));
+    g.add(put(Me(box(50,16,66,0.8), Mblk),  252, 128, 0));          // clamp pad under the shank
+    for(let t=0;t<2;t++){                                            // 2 clamp screws, radial
+      const bo=socketBolt(12,24,Mblk); bo.position.set(244+t*28, 160, 0); g.add(bo); }
+    g.add(put(Me(box(10,34,62,0.5), Msteel), 226, 142, 0));          // front retaining plate
+
+    if(k===0 || k===3 || k===6){                                     // OD turning tool, CNMG
+      g.add(put(Me(box(118,20,20,0.8), Mblk), 196, RTIP+10, 0));     // 20 sq shank, tip edge at r=112
+      g.add(put(Me(box(26,16,20,0.6), Msteel), 144, RTIP+9, 0));     // head
+      g.add(insert(138, RTIP+4, 4, 9, 0.26));
+      const cs=socketBolt(5,7,Mblk); cs.position.set(138, RTIP+8, 4); g.add(cs);
+    } else if(k===1 || k===5){                                       // ID boring bar
+      const sl=Me(tube(44,24,54,24,0.8), Msteel); sl.rotation.z=Math.PI/2;
+      g.add(put(sl, 236, RTIP+22, 0));
+      const bar=Me(cyl(22,128,24), Mblk); bar.rotation.z=Math.PI/2;
+      g.add(put(bar, 180, RTIP+22, 0));
+      g.add(insert(118, RTIP+14, 5, 6, 0.3));
+    } else if(k===2 || k===7){                                       // ER collet drill holder
+      const bs=Me(cyl(54,34,32), Msteel); bs.rotation.z=Math.PI/2; g.add(put(bs, 222, RTIP+24, 0));
+      const nut=Me(new THREE.CylinderGeometry(27,23,24,6), Mblk); nut.rotation.z=Math.PI/2;
+      g.add(put(nut, 193, RTIP+24, 0));
+      const dr=Me(cyl(14,86,20), Msteel); dr.rotation.z=Math.PI/2; g.add(put(dr, 146, RTIP+24, 0));
+      for(let f=0;f<7;f++){ const fl=Me(new THREE.TorusGeometry(7.2,1.5,6,14), Mblk);
+        fl.rotation.set(0,Math.PI/2,0.42); g.add(put(fl, 112+f*12, RTIP+24, 0)); }
+      const tp=Me(new THREE.ConeGeometry(7,12,18), Msteel); tp.rotation.z=Math.PI/2;
+      g.add(put(tp, 97, RTIP+24, 0));
+    } else {                                                         // parting / grooving blade
+      g.add(put(Me(box(96,44,6,0.4), Msteel), 190, RTIP+24, 0));
+      g.add(put(Me(box(26,20,6,0.3), Mblk), 146, RTIP+8, 0));
+      g.add(insert(137, RTIP+3, 0, 4, 0));
+    }
+    g.rotation.x = a;
+    part(`Tool station ${k+1}`, g, {vi:`Ổ gá dao số ${k+1}`, moving:true, collide:false, parent:idx});
+  }
+
+  /* ================= 8 · REBUILT CHARCOAL CONTROL PILLAR + AUTHENTIC FANUC SERIES 21i-TB PANEL (PHOTO 3) ================= */
+  P('Control pillar column','Trụ điều khiển', 400,760, PED_T,1050, -260,FR, Mchar, {}, 3);
+  P('Pillar lower panel','Tấm vỏ dưới trụ', 420,740, 700,1030, FR,PF, Mgrey, {}, 2);
+  [[434,714],[726,714],[434,1016],[726,1016]].forEach((p,i)=>
+    part(`Pillar panel screw ${i+1}`, screw(p[0],p[1],PF-1), {vi:`Vít tấm trụ ${i+1}`, fastener:true}));
+  P('Pillar upper box','Khối trên trụ điều khiển', 400,760, 1050,TOPY, -260,220, Mchar, {}, 3);
+  P('Right pillar side cover','Tấm nắp hông trụ điều khiển', 760,765, 580,1370, -220,180, McharD, {collide:false}, 1.5);
+  P('Pendant housing','Hộp bảng điều khiển', 400,760, 1050,1720, 220,620, Mchar, {}, 3);
+  P('Pendant top cap','Nắp trên bảng điều khiển', 396,764, 1706,1720, 216,624, McharD, {collide:false},2);
+
+  // Operator Control Pendant Group (centred at X=580, Y=1385, Z=612, tilted -4 deg)
+  const pend=new THREE.Group(); pend.position.set(580,1385,612); pend.rotation.x=-4*D; root.add(pend);
+
+  // Outer blue/charcoal backing frame + dark-grey powder-coated panel plates (matching Photo 3)
+  (()=>{
+    const fGrp = new THREE.Group();
+    // Blue sheet-metal border frame
+    fGrp.add(put(Me(box(352, 650, 18, 2.0), Mblue), 0, 0, -2));
+    // Dark charcoal powder-coated main panel plate
+    fGrp.add(put(Me(box(336, 632, 16, 1.5), McharD), 0, -4, 3));
+    // Top-left white/blue TAKAMAZ badge above the FANUC bezel
+    const badgeMat = matClone('plastic_abs', 0xffffff);
+    badgeMat.map = ctex(256, 64, (x,w,h)=>{
+      x.fillStyle='#e5e9f0'; x.fillRect(0,0,w,h);
+      x.strokeStyle='#64748b'; x.lineWidth=4; x.strokeRect(2,2,w-4,h-4);
+      x.fillStyle='#163e7a'; x.font='900 36px Arial'; x.fillText('TAKAMAZ', 26, 45);
+    });
+    fGrp.add(put(Me(box(76, 18, 3, 0.5), badgeMat), -122, 311, 11));
+    part('Pendant face plate', fGrp,
+         {vi:'Khung mặt bảng điều khiển TAKAMAZ', spec:[352,66.9,649.7], collide:false, parent:pend});
+  })();
+
+  // MODULE 8A: Upper FANUC Series 21i-TB Display Bezel, PCMCIA Slot, Spec Sticker & 7 Softkeys (Photo 3)
+  (()=>{
+    const bGrp = new THREE.Group();
+    // Molded dark-charcoal CRT/LCD bezel frame (Y = 122..298)
+    bGrp.add(put(Me(box(326, 176, 12, 2.0), Mchar), 0, 210, 12));
+    // Deep recessed screen window frame
+    bGrp.add(put(Me(box(210, 128, 10, 1.2), Mblk), 4, 212, 14));
+
+    // Top-left yellow/black "FANUC Series 21i-TB" header bar on bezel (Photo 3)
+    const fanucBarMat = matClone('plastic_abs', 0xffffff);
+    fanucBarMat.map = ctex(512, 48, (x,w,h)=>{
+      x.fillStyle='#e5b812'; x.fillRect(0,0,w,h);
+      x.fillStyle='#1f2328'; x.fillRect(4,4,w-8,h-8);
+      x.fillStyle='#facc15'; x.fillRect(6,6,118,h-12);
+      x.fillStyle='#b91c1c'; x.font='900 26px Arial'; x.fillText('FANUC', 18, 33);
+      x.fillStyle='#facc15'; x.font='bold 24px Arial'; x.fillText('Series 21i-TB', 142, 32);
+    });
+    bGrp.add(put(Me(box(228, 13, 3, 0.4), fanucBarMat), -26, 286, 18));
+
+    // Left Bezel PCMCIA Memory Card Slot Cover with recessed vertical latch (Photo 3)
+    bGrp.add(put(Me(box(28, 92, 6, 1.0), McharD), -132, 208, 17));
+    bGrp.add(put(Me(box(12, 66, 4, 0.5), Mblk), -132, 208, 19.5));
+    bGrp.add(put(Me(cyl(10, 4, 16), Mblk).rotateX(Math.PI/2), -132, 170, 19));
+
+    // Right Bezel White Specification Sticker (Photo 3)
+    const specMat = matClone('plastic_abs', 0xffffff);
+    specMat.map = ctex(160, 256, (x,w,h)=>{
+      x.fillStyle='#eef2f0'; x.fillRect(0,0,w,h);
+      x.strokeStyle='#475569'; x.lineWidth=4; x.strokeRect(4,4,w-8,h-8);
+      x.fillStyle='#0f172a'; x.font='bold 18px monospace';
+      ['TAKAMAZ','X-10','-------','21i-TB','S:3500','T:8-ST','CHK:6"','MADE IN','JAPAN'].forEach((s,i)=>x.fillText(s,14,28+i*25));
+    });
+    bGrp.add(put(Me(box(26, 54, 2, 0.3), specMat), 134, 232, 18));
+
+    // Row of 7 Dark-Grey Rectangular Soft-Key Buttons directly underneath the LCD screen (Photo 3)
+    for(let i=0; i<7; i++){
+      const sx = -90 + i * 31;
+      const sk = Me(box(22, 10, 6, 1.0), i===0||i===6 ? McharD : Mblk);
+      sk.position.set(sx, 134, 18);
+      bGrp.add(sk);
+    }
+
+    // 4 Corner mounting screws on bezel
+    [[-154,290],[154,290],[-154,130],[154,130]].forEach(([sx,sy])=>{
+      bGrp.add(screw(sx, sy, 18.5, 6));
+    });
+
+    part('NC display bezel', bGrp,
+         {vi:'Khung màn hình FANUC Series 21i-TB & 7 phím mềm', spec:[326,26.8,176.4], collide:false, parent:pend});
+  })();
+
+  // Authentic Monochrome Pale-Greenish-Grey FANUC 21i-TB LCD Screen (Photo 3)
+  part('NC screen', put(Me(box(198, 118, 4, 0.6), (()=>{
+    const m = matClone('plastic_abs', 0xc4d3be);
+    m.map = ctex(560, 340, (x,w,h)=>{
+      // Pale greenish-grey reflective LCD background (#c2d1bc)
+      x.fillStyle = '#c2d1bc'; x.fillRect(0,0,w,h);
+      // Subtle LCD scanline grid
+      x.fillStyle = 'rgba(25,40,28,0.04)';
+      for(let y=0; y<h; y+=4) x.fillRect(0,y,w,2);
+
+      x.strokeStyle = '#3c4f3e'; x.lineWidth = 2;
+      x.strokeRect(8, 8, w-16, h-16);
+      x.beginPath(); x.moveTo(8, 38); x.lineTo(w-8, 38);
+      x.moveTo(8, h-64); x.lineTo(w-8, h-64);
+      x.moveTo(8, h-36); x.lineTo(w-8, h-36); x.stroke();
+
+      x.fillStyle = '#18261a'; x.font = 'bold 18px monospace';
+      x.fillText('TAKAMAZ         ACTUAL POSITION', 18, 30);
+      x.fillText('O0010 N0040', 415, 30);
+
+      x.font = 'bold 17px monospace';
+      x.fillText('(ABSOLUTE)', 20, 64);
+      x.fillText('(RELATIVE)', 290, 64);
+
+      x.font = 'bold 26px monospace';
+      x.fillText('X   120.000', 24, 102);
+      x.fillText('Z   -85.400', 24, 136);
+      x.font = 'bold 21px monospace';
+      x.fillText('U     0.000', 292, 100);
+      x.fillText('W   -28.500', 292, 134);
+
+      x.font = 'bold 16px monospace';
+      ['G00 X120.0 Z85.0 T0101 ;','G97 S1850 M03 M08 ;','G01 Z-28.5 F0.18 ;','ACT.F    0.18 mm/rev   S 1850']
+        .forEach((s,i)=>x.fillText(s, 22, 174 + i*24));
+
+      // Status bar
+      x.fillStyle = '#18261a'; x.fillRect(16, h-60, 56, 20);
+      x.fillStyle = '#c2d1bc'; x.font = 'bold 16px monospace';
+      x.fillText('MEM', 28, h-45);
+      x.fillStyle = '#18261a';
+      x.fillText('STRT *** ***   00:14:22   F100% S100%', 86, h-45);
+
+      // 5 Softkey boxes along bottom of LCD
+      ['[ ABS ]','[ REL ]','[ ALL ]','[ HNDL ]','[(OPRT)]'].forEach((lbl,i)=>{
+        const bx = 18 + i*106;
+        if(i===2){ x.fillStyle='#9eb298'; x.fillRect(bx, h-32, 98, 20); }
+        x.strokeStyle='#3c4f3e'; x.strokeRect(bx, h-32, 98, 20);
+        x.fillStyle='#18261a'; x.font='bold 15px monospace';
+        x.fillText(lbl, bx+14, h-17);
+      });
+    });
+    m.emissive = new THREE.Color(0x8fa68a);
+    m.emissiveMap = m.map;
+    m.emissiveIntensity = 0.28;
+    return m;
+  })()), 4, 212, 17.5), {vi:'Màn hình LCD đơn sắc FANUC 21i-TB', spec:[198,12.2,118], collide:false, parent:pend});
+
+  // MODULE 8B: Middle-Left Sub-Panel (POWER ON/OFF, MPG Handwheel, TURRET Btn & 2 Keyswitches with Keys - Photo 3)
+  (()=>{
+    const mlGrp = new THREE.Group();
+    // Backing plate with legends (POWER, OFF/ON, curved arrow, TURRET, PROGRAM EDIT, DOOR INTERLOCK)
+    const backMat = matClone('paint_satin', 0xffffff);
+    backMat.map = ctex(320, 360, (x,w,h)=>{
+      x.fillStyle='#2c3137'; x.fillRect(0,0,w,h);
+      x.fillStyle='#f1f5f9'; x.textAlign='center';
+      x.font='bold 18px Arial'; x.fillText('POWER', w/2, 26);
+      x.font='bold 14px Arial'; x.fillText('OFF', 102, 48); x.fillText('ON', 214, 48);
+
+      // Curved white directional indicator arrow above MPG wheel
+      x.strokeStyle='#f1f5f9'; x.lineWidth=3.5;
+      x.beginPath(); x.arc(w/2, 198, 86, -1.95, -1.19); x.stroke();
+      x.font='bold 18px monospace'; x.fillText('-', 104, 124); x.fillText('+', 216, 124);
+
+      // Bottom labels for TURRET & 2 Keyswitches
+      x.font='bold 13px Arial';
+      x.fillText('TURRET', 54, 292);
+      x.fillText('PROGRAM', 156, 282); x.fillText('EDIT', 156, 297);
+      x.fillText('DOOR', 258, 282); x.fillText('INTERLOCK', 258, 297);
+    });
+    mlGrp.add(put(Me(box(138, 160, 4, 0.8), backMat), -94, 34, 11));
+
+    // Red POWER OFF & Green POWER ON 3D cylindrical pushbuttons with silver bezels
+    const pOffBezel = Me(tube(30, 23, 6, 32, 0.5), Mzinc); pOffBezel.rotation.x=Math.PI/2;
+    mlGrp.add(put(pOffBezel, -118, 76, 14));
+    const pOffCap = Me(cyl(23, 9, 32), Mred); pOffCap.rotation.x=Math.PI/2;
+    mlGrp.add(put(pOffCap, -118, 76, 17));
+
+    const pOnBezel = Me(tube(30, 23, 6, 32, 0.5), Mzinc); pOnBezel.rotation.x=Math.PI/2;
+    mlGrp.add(put(pOnBezel, -70, 76, 14));
+    const pOnCap = Me(cyl(23, 9, 32), Mgreen); pOnCap.rotation.x=Math.PI/2;
+    mlGrp.add(put(pOnCap, -70, 76, 17));
+
+    // Glossy Black Graduated MPG Handwheel (Manual Pulse Generator) with 0-100 scale & revolving knob (Photo 3)
+    const mpgX = -94, mpgY = 12;
+    const mpgBase = Me(cyl(78, 12, 48), Mblk); mpgBase.rotation.x = Math.PI/2;
+    mlGrp.add(put(mpgBase, mpgX, mpgY, 16));
+
+    const dialMat = matClone('plastic_abs', 0xffffff);
+    dialMat.map = ctex(256, 256, (x,w,h)=>{
+      x.fillStyle='#14171b'; x.fillRect(0,0,w,h);
+      x.strokeStyle='#f8fafc'; x.fillStyle='#f8fafc'; x.textAlign='center'; x.textBaseline='middle';
+      for(let i=0; i<100; i++){
+        const a = (i/100)*Math.PI*2 - Math.PI/2;
+        const r1 = 122, r2 = (i%10===0) ? 98 : (i%5===0 ? 105 : 112);
+        x.lineWidth = (i%10===0) ? 3 : 1.4;
+        x.beginPath();
+        x.moveTo(128+Math.cos(a)*r1, 128+Math.sin(a)*r1);
+        x.lineTo(128+Math.cos(a)*r2, 128+Math.sin(a)*r2);
+        x.stroke();
+      }
+      x.font='bold 16px Arial'; x.fillText('0', 128, 42);
+      x.fillText('25', 214, 128); x.fillText('50', 128, 214); x.fillText('75', 42, 128);
+      x.strokeStyle='#64748b'; x.lineWidth=3;
+      x.beginPath(); x.arc(128,128,62,0,Math.PI*2); x.stroke();
+      x.font='bold 18px Arial'; x.fillText('TAKAMAZ', 128, 128);
+    });
+    const mpgFace = Me(cyl(74, 4, 48), dialMat); mpgFace.rotation.x = Math.PI/2;
+    mlGrp.add(put(mpgFace, mpgX, mpgY, 22));
+
+    // Off-center revolving silver handle knob on the MPG wheel
+    const knobPin = Me(cyl(11, 16, 20), Msteel); knobPin.rotation.x = Math.PI/2;
+    mlGrp.add(put(knobPin, mpgX + 18, mpgY - 16, 30));
+
+    // Green Square Illuminated TURRET Index Button at bottom-left of middle section
+    mlGrp.add(put(Me(box(20, 20, 6, 1.0), Mblk), -138, -32, 14));
+    mlGrp.add(put(Me(box(15, 15, 7, 0.8), Mgreen), -138, -32, 17));
+
+    // 2 Keyswitches (PROGRAM EDIT & DOOR INTERLOCK) with silver barrels, key-rings, and hanging keys (Photo 3)
+    [-94, -52].forEach((kx, idxKey)=>{
+      const barrel = Me(tube(18, 8, 8, 24, 0.5), Mzinc); barrel.rotation.x = Math.PI/2;
+      mlGrp.add(put(barrel, kx, -32, 15));
+      const keyBow = Me(box(4, 12, 10, 0.5), Mzinc);
+      keyBow.position.set(kx, -32, 21);
+      keyBow.rotation.z = idxKey===0 ? 0.25 : -0.35;
+      mlGrp.add(keyBow);
+      // Hanging silver key-ring
+      const ring = Me(new THREE.TorusGeometry(9, 1.4, 10, 24), Mzinc);
+      ring.position.set(kx, -42, 23);
+      mlGrp.add(ring);
+    });
+
+    part('Power, MPG handwheel & keyswitches', mlGrp,
+         {vi:'Cụm nút Nguồn, Tay quay MPG, nút Đài dao & Ổ khóa', spec:[138,37.5,165.4], collide:false, parent:pend});
+  })();
+
+  // MODULE 8C: Middle-Right 6x8 (48-Key) Vintage Cream/Beige 3D Mechanical MDI Keypad (Photo 3)
+  (()=>{
+    const mdiGrp = new THREE.Group();
+    // Dark charcoal keypad housing bezel (X = -18..160, Y = -46..114)
+    mdiGrp.add(put(Me(box(178, 160, 10, 1.5), McharD), 71, 34, 13));
+    mdiGrp.add(put(Me(box(164, 146, 8, 1.0), Mblk), 71, 34, 15));
+
+    // High-resolution crisp legend sheet + 48 individual 3D raised cream keycaps (6 columns x 8 rows)
+    const keyLabels = [
+      'O','N','G','7','8','9',
+      'X','Z','Y','4','5','6',
+      'M','S','T','1','2','3',
+      'F','H','EOB','-','0','.',
+      'POS','PROG','OFS','SHFT','CAN','INPT',
+      'SYS','MSG','GRPH','ALTR','INSR','DELT',
+      'PG▲','PG▼','↑','↓','←','→',
+      'HLP','CALC','AUX','SP','BS','RST'
+    ];
+    for(let r=0; r<8; r++){
+      for(let c=0; c<6; c++){
+        const idxK = r*6 + c;
+        const kx = 1 + c * 26.5;
+        const ky = 96 - r * 17.5;
+        const isReset = (idxK === 47);
+        const capMat = isReset ? matClone('plastic_abs', 0xf6efe2) : Mcream;
+        // 3D sculpted mechanical keycap
+        const cap = Me(box(22.5, 14.5, 6, 1.2), capMat);
+        cap.position.set(kx, ky, 19);
+        mdiGrp.add(cap);
+      }
+    }
+
+    // Crisp key legends decal overlaid on the 48 keycaps
+    const legendTex = ctex(512, 460, (x,w,h)=>{
+      x.clearRect(0,0,w,h);
+      x.textAlign='center'; x.textBaseline='middle';
+      for(let r=0; r<8; r++){
+        for(let c=0; c<6; c++){
+          const idxK = r*6 + c;
+          const cx = 44 + c * 84.5;
+          const cy = 32 + r * 56.2;
+          if(idxK === 47){
+            x.strokeStyle='#c2410c'; x.lineWidth=4;
+            x.strokeRect(cx-30, cy-18, 60, 36);
+            x.fillStyle='#9a3412';
+          } else {
+            x.fillStyle='#1c1915';
+          }
+          x.font = keyLabels[idxK].length > 2 ? 'bold 17px Arial' : 'bold 22px Arial';
+          x.fillText(keyLabels[idxK], cx, cy);
+        }
+      }
+    });
+    const legMat = matClone('plastic_abs', 0xffffff);
+    legMat.map = legendTex; legMat.transparent = true; legMat.depthWrite = false;
+    legMat.polygonOffset = true; legMat.polygonOffsetFactor = -3;
+    mdiGrp.add(put(Me(new THREE.PlaneGeometry(156, 140), legMat), 67.2, 34.8, 22.2));
+
+    part('MDI key panel (48 cream keys)', mdiGrp,
+         {vi:'Bàn phím MDI 48 nút màu kem FANUC', spec:[178,24.6,160.3], collide:false, parent:pend});
+  })();
+
+  // MODULE 8D: Lower-Left Framed Membrane Operator Panel + Lower-Right Override Knobs + Bottom Total Counter (Photo 3)
+  (()=>{
+    const opGrp = new THREE.Group();
+
+    // Framed Membrane Operator Panel Bezel (X = -162..64, Y = -228..-54)
+    opGrp.add(put(Me(box(226, 174, 10, 1.8), Mchar), -49, -141, 13));
+
+    // High-resolution membrane operator keypad texture matching Photo 3 (Mode row, Yellow function row, Alarm matrix, Blue 3x3 JOG cross, Cycle Start/Hold)
+    const memMat = matClone('plastic_abs', 0xffffff);
+    memMat.map = ctex(560, 430, (x,w,h)=>{
+      x.fillStyle='#22262b'; x.fillRect(0,0,w,h);
+      x.strokeStyle='#47505a'; x.lineWidth=3; x.strokeRect(6,6,w-12,h-12);
+
+      const drawBtn = (bx,by,bw,bh,borderCol,fillCol,t1,t2,ledCol)=>{
+        x.fillStyle = fillCol || '#323840';
+        x.fillRect(bx,by,bw,bh);
+        x.strokeStyle = borderCol; x.lineWidth = 3;
+        x.strokeRect(bx,by,bw,bh);
+        if(ledCol){
+          x.fillStyle = ledCol;
+          x.beginPath(); x.arc(bx+10, by+10, 5, 0, Math.PI*2); x.fill();
+        }
+        x.fillStyle = '#f1f5f9'; x.textAlign = 'center'; x.font = 'bold 13px Arial';
+        if(t2){
+          x.fillText(t1, bx+bw/2, by+bh/2-4);
+          x.fillText(t2, bx+bw/2, by+bh/2+12);
+        } else {
+          x.fillText(t1, bx+bw/2, by+bh/2+5);
+        }
+      };
+
+      // Row 1: 6 Blue Mode Buttons
+      ['EDIT','AUTO','MDI','HNDL','JOG','ZRN'].forEach((m,i)=>{
+        drawBtn(18+i*62, 18, 56, 48, '#5899e2', '#2d3744', m, '', i===1?'#4ade80':'#475569');
+      });
+
+      // Row 2: 5 Yellow/Red Function Keys
+      ['SNGL','BLCK','OPT','DRY','MACH'].forEach((t1,i)=>{
+        const t2 = ['BLCK','DEL','STOP','RUN','LOCK'][i];
+        drawBtn(18+i*54, 78, 48, 48, i===4?'#ef4444':'#eab308', '#33363b', t1, t2, i===2?'#4ade80':'#475569');
+      });
+
+      // Right-side 4-row Red Alarm LED Matrix (Photo 3)
+      ['LUB ALARM','CHUCK ALARM','TURRET ALM','COOLANT ALM'].forEach((alm,i)=>{
+        const ay = 78 + i*22;
+        x.fillStyle='#3b181b'; x.fillRect(398, ay, 142, 19);
+        x.strokeStyle='#7f1d1d'; x.lineWidth=1.5; x.strokeRect(398, ay, 142, 19);
+        x.fillStyle = i===0 ? '#ef4444' : '#7f1d1d';
+        x.beginPath(); x.arc(410, ay+9.5, 4.5, 0, Math.PI*2); x.fill();
+        x.fillStyle='#fecaca'; x.textAlign='left'; x.font='bold 11px monospace';
+        x.fillText(alm, 422, ay+13.5);
+      });
+
+      // Left column handle multipliers
+      ['HD-X','HD-Z','x1','x10'].forEach((lbl,i)=>{
+        drawBtn(18, 140+i*48, 52, 42, '#eab308', '#2f343b', lbl, '', i===0||i===3?'#4ade80':'#475569');
+      });
+
+      // Center Blue 3x3 JOG Directional Cross Pad (+X, -X, -Z, +Z, rapid center)
+      x.fillStyle='#191d22'; x.fillRect(82, 138, 198, 192);
+      x.strokeStyle='#4b5563'; x.lineWidth=2; x.strokeRect(82, 138, 198, 192);
+      drawBtn(150, 146, 62, 54, '#60a5fa', '#263445', '+X', '▲', '#475569');
+      drawBtn(90,  206, 56, 54, '#60a5fa', '#263445', '◄ -Z', '', '#475569');
+      drawBtn(150, 206, 62, 54, '#60a5fa', '#1e3a5f', 'TRVRS', 'RAPID', '#ef4444');
+      drawBtn(216, 206, 56, 54, '#60a5fa', '#263445', '+Z ►', '', '#475569');
+      drawBtn(150, 266, 62, 54, '#60a5fa', '#263445', '-X', '▼', '#475569');
+
+      // Right Spindle & Coolant control keys
+      [['SPDL','CW'],['CLNT','ON'],['SPDL','STOP'],['CLNT','OFF'],['SPDL','CCW'],['CLNT','AUTO']].forEach(([t1,t2],i)=>{
+        const c = i%2, r = (i/2)|0;
+        const bCol = (t2==='STOP') ? '#ef4444' : '#60a5fa';
+        drawBtn(292+c*68, 174+r*52, 62, 46, bCol, '#2b323b', t1, t2, (i===0||i===5)?'#4ade80':'#475569');
+      });
+
+      // Bottom Row: Green CYCLE START, Yellow FEED HOLD, Chuck & Door keys
+      drawBtn(18,  348, 108, 62, '#4ade80', '#165b33', 'CYCLE', 'START', '#4ade80');
+      drawBtn(134, 348, 86,  62, '#facc15', '#524114', 'FEED', 'HOLD', '#475569');
+      drawBtn(228, 348, 72,  62, '#4ade80', '#1f4732', 'CHUCK', 'CLAMP', '#4ade80');
+      drawBtn(308, 348, 72,  62, '#f87171', '#4c1d1d', 'CHUCK', 'OPEN', '#475569');
+      drawBtn(388, 348, 150, 62, '#60a5fa', '#283342', 'DOOR', 'INTERLOCK', '#4ade80');
+    });
+    opGrp.add(put(Me(box(212, 160, 4, 0.8), memMat), -49, -141, 17.5));
+
+    // Lower-Right Override Knobs & Chuck Toggle Switch Section (X = 68..164, Y = -228..-54, Photo 3)
+    const ovrBackMat = matClone('paint_satin', 0xffffff);
+    ovrBackMat.map = ctex(220, 400, (x,w,h)=>{
+      x.fillStyle='#2c3137'; x.fillRect(0,0,w,h);
+      x.fillStyle='#f1f5f9'; x.textAlign='center'; x.font='bold 14px Arial';
+      x.fillText('FEEDRATE', w/2, 24); x.fillText('OVERRIDE', w/2, 40);
+      // White tick scale for Feedrate Override
+      x.strokeStyle='#f1f5f9'; x.lineWidth=2.5;
+      for(let i=0; i<=12; i++){
+        const a = (-210 + i*20)*Math.PI/180;
+        x.beginPath();
+        x.moveTo(w/2+Math.cos(a)*54, 102+Math.sin(a)*54);
+        x.lineTo(w/2+Math.cos(a)*44, 102+Math.sin(a)*44);
+        x.stroke();
+      }
+      x.fillText('SPINDLE', w/2, 184); x.fillText('OVERRIDE', w/2, 200);
+      // White crescent arc scale for Spindle Override (Photo 3)
+      x.lineWidth=6;
+      x.beginPath(); x.arc(w/2, 256, 48, 1.8, 4.9); x.stroke();
+
+      x.font='bold 12px Arial';
+      x.fillText('O.T. REL', 58, 326);
+      x.fillText('CHUCK', 156, 326);
+      x.fillText('RS-232-C', w/2, 388);
+    });
+    opGrp.add(put(Me(box(94, 174, 4, 0.8), ovrBackMat), 116, -141, 11));
+
+    // 2 3D Fluted Black Rotary Selector Knobs (FEEDRATE OVERRIDE & SPINDLE OVERRIDE) with white pointer bars
+    [-98, -166].forEach((ky, idxKnob)=>{
+      const kBase = Me(cyl(36, 8, 32), Mblk); kBase.rotation.x = Math.PI/2;
+      opGrp.add(put(kBase, 116, ky, 15));
+      const kDial = Me(cyl(28, 14, 16), McharD); kDial.rotation.x = Math.PI/2;
+      opGrp.add(put(kDial, 116, ky, 21));
+      const ptr = Me(box(4, 14, 3, 0.4), matClone('plastic_abs', 0xf8fafc));
+      ptr.position.set(116, ky + 4, 28.5);
+      opGrp.add(ptr);
+    });
+
+    // Yellow O.T. Release pushbutton + Metallic CHUCK toggle switch + RS-232-C port
+    const otBtn = Me(cyl(12, 8, 20), Mamber); otBtn.rotation.x = Math.PI/2;
+    opGrp.add(put(otBtn, 92, -202, 15));
+
+    const chkWasher = Me(tube(18, 6, 5, 24, 0.4), Mzinc); chkWasher.rotation.x = Math.PI/2;
+    opGrp.add(put(chkWasher, 136, -202, 15));
+    const chkBat = Me(cyl(6, 20, 16), Mzinc); chkBat.rotation.x = Math.PI/2 - 0.35;
+    opGrp.add(put(chkBat, 136, -202, 22));
+
+    opGrp.add(put(Me(box(52, 12, 4, 0.5), Mblk), 116, -220, 14));
+
+    // Bottom Sub-Panel: Recessed Silver 5-Digit Mechanical TOTAL COUNTER + Angled White Sticker (Photo 3)
+    opGrp.add(put(Me(box(78, 56, 8, 1.2), matClone('alu_anodized', 0xc4cbd4)), -106, -276, 13));
+    const cntMat = matClone('plastic_abs', 0xffffff);
+    cntMat.map = ctex(200, 140, (x,w,h)=>{
+      x.fillStyle='#c4cbd4'; x.fillRect(0,0,w,h);
+      x.strokeStyle='#1e293b'; x.lineWidth=4; x.strokeRect(4,4,w-8,h-8);
+      x.fillStyle='#0f172a'; x.font='bold 15px Arial'; x.textAlign='center';
+      x.fillText('TOTAL COUNTER', w/2, 26);
+      x.fillStyle='#090b0e'; x.fillRect(20, 42, 126, 44);
+      x.fillStyle='#f8fafc'; x.font='bold 26px monospace';
+      x.fillText('0 0 4 2 8', 83, 73);
+      x.fillStyle='#1e293b'; x.fillRect(156, 48, 24, 32);
+    });
+    opGrp.add(put(Me(box(72, 50, 3, 0.4), cntMat), -106, -276, 16.5));
+
+    // Slightly tilted white inspection label next to Total Counter (Photo 3)
+    const stickerMat = matClone('plastic_abs', 0xf8fafc);
+    const sticker = Me(box(48, 18, 2, 0.3), stickerMat);
+    sticker.position.set(-36, -294, 13);
+    sticker.rotation.z = -8 * D;
+    opGrp.add(sticker);
+
+    part('Operator sub panel & overrides', opGrp,
+         {vi:'Bảng vận hành, Núm chỉnh tốc độ & Bộ đếm phôi', spec:[325,34.6,252.1], collide:false, parent:pend});
+  })();
+
+  /* ================= 9 · rear main electrical cabinet, lower service drawers, lifting eyes ========= */
+  P('Electrical cabinet','Tủ điện điều khiển chính', 180,760, PED_T,TOPY, BK,-260, Mivory, {}, 4);
+  P('Cabinet top cap','Viền nóc tủ điện & khoang sau', -702,762, TOPY-12,TOPY+2, BK-4,-256, McharD, {collide:false}, 2);
+  P('Cabinet door left','Cánh tủ điện trái', 196,466, 565,1385, PB,BK, MivoryD, {collide:false}, 1.5);
+  P('Cabinet door right','Cánh tủ điện phải', 474,744, 565,1385, PB,BK, MivoryD, {collide:false}, 1.5);
+  for(let i=0;i<2;i++){
+    P(`Cabinet hinge L${i+1}`,`Bản lề tủ điện trái ${i+1}`, 190,202, 630+i*620, 690+i*620, PB-4,BK, Mzinc, {collide:false}, 1);
+    P(`Cabinet hinge R${i+1}`,`Bản lề tủ điện phải ${i+1}`, 738,750, 630+i*620, 690+i*620, PB-4,BK, Mzinc, {collide:false}, 1);
+  }
+  P('Cabinet door latch','Khóa tay nắm tủ điện', 488,510, 910,1020, PB-8,PB, matClone('alu_anodized'), {collide:false}, 1);
+  (()=>{ const g=new THREE.Group();                     // main disconnect breaker on right rear door
+    g.add(bxm(486,556, 1080,1160, PB-6,PB, matClone('paint_satin',0xd8ae12), 1.5));
+    const h=Me(box(52,14,10,1.0), Mred); h.position.set(521,1120,PB-9); h.rotation.z=-0.5; g.add(h);
+    part('Main disconnect switch', g, {vi:'Cầu dao tổng nguồn', spec:[70,14,80], collide:false});})();
+  (()=>{ const g=new THREE.Group();                     // cooling fan on left rear cabinet door
+    const r=Me(tube(190,150,8,48,0.6), Mchar); r.rotation.x=Math.PI/2; g.add(put(r,0,0,0));
+    for(let i=0;i<6;i++) g.add(put(Me(box(150,10,8,0.5), Mchar),0,-60+i*24,0));
+    g.position.set(330,1170,PB-2);
+    part('Cabinet fan grille', g, {vi:'Quạt giải nhiệt tủ điện', spec:[190,8,190], collide:false});})();
+  part('Cabinet intake filter', put(louvre(190,180,6,Mchar),330,745,PB-2.5).rotateY(Math.PI),
+       {vi:'Lưới lọc gió tủ điện', spec:[190,17.4,180], collide:false});
+  (()=>{ const m=matClone('plastic_abs',0xd9d7d1);
+    m.map=ctex(360,160,(x,w,h)=>{ x.fillStyle='#d9d7d1'; x.fillRect(0,0,w,h);
+      x.strokeStyle='#23262a'; x.lineWidth=4; x.strokeRect(4,4,w-8,h-8);
+      x.fillStyle='#23262a'; x.font='bold 28px Arial'; x.fillText('TAKAMATSU',16,42);
+      x.font='bold 20px Arial'; x.fillText('MODEL : X-10',16,74);
+      x.font='18px Arial'; x.fillText('AC 200V  3Ø  50/60Hz  15kVA',16,104);
+      x.fillStyle='#d98518'; x.fillRect(16,118,w-32,28);
+      x.fillStyle='#1b1f24'; x.font='bold 17px Arial'; x.fillText('⚡ CAUTION : HIGH VOLTAGE',42,138);});
+    const o=Me(new THREE.PlaneGeometry(165,74), m); o.rotation.y=Math.PI; o.position.set(625,1235,PB-0.5);
+    part('Cabinet nameplate', o, {vi:'Nhãn thông số & cảnh báo tủ điện', decal:true, collide:false});})();
+  P('Power cable gland','Hộp đấu nguồn chính & ốc siết cáp', 630,710, 600,680, PB-14,BK,
+    matClone('alu_anodized'), {collide:false}, 1.5);
+
+  P('Coolant tank drawer','Thùng dung dịch tưới nguội sau', -660,-140, 95,440, PB,BK, MblueD, {}, 1.5);
+  for(let i=0;i<2;i++) P(`Coolant tank handle ${i+1}`,`Tay nắm thùng dung dịch ${i+1}`,
+    -570+i*260,-450+i*260, 355,380, PB-16,PB, matClone('alu_anodized'), {collide:false}, 1);
+  decal('Coolant sight gauge','Thước thăm mức dung dịch sau', 36,160, -615,255, PB-0.5,
+    ctex(90,400,(x,w,h)=>{ x.fillStyle='#23272c'; x.fillRect(0,0,w,h);
+      x.fillStyle='#dce2e8'; x.fillRect(22,24,46,h-48);
+      x.fillStyle='#3b82f6'; x.fillRect(26,110,38,h-138);
+      x.strokeStyle='#b4151c'; x.lineWidth=6; x.beginPath(); x.moveTo(16,90); x.lineTo(74,90); x.stroke();
+    })).rotation.y = Math.PI;
+  P('Chip tray drawer','Khay hứng phoi sau', -110,360, 95,360, PB,BK, MblueD, {}, 1.5);
+  for(let i=0;i<2;i++) P(`Chip tray handle ${i+1}`,`Tay nắm khay phoi ${i+1}`,
+    -40+i*210,70+i*210, 275,300, PB-16,PB, matClone('alu_anodized'), {collide:false}, 1);
+  P('Rear base service panel','Tấm che hốc kỹ thuật đế sau', 400,740, 120,480, PB,BK, MblueD, {}, 1.5);
+  part('Rear base vent louvre', put(louvre(240,150,6,MblueD),570,300,PB-2.5).rotateY(Math.PI),
+       {vi:'Lưới thông gió chân đế sau', spec:[240,17.4,150], collide:false});
+
+  part('Lifting eye 1', eyebolt(-520,1424,-180), {vi:'Móc cẩu 1', spec:[66,24,68], collide:false});
+  part('Lifting eye 2', eyebolt(-140,1424,-180), {vi:'Móc cẩu 2', spec:[66,24,68], collide:false});
+
+  /* ================= 10 · 6 s turning cycle ================= */
+  const kf=(t,keys)=>{ if(t<=keys[0][0]) return keys[0][1];
+    for(let i=1;i<keys.length;i++) if(t<=keys[i][0]){
+      const u=(t-keys[i-1][0])/(keys[i][0]-keys[i-1][0]), e=u*u*(3-2*u);
+      return keys[i-1][1]+(keys[i][1]-keys[i-1][1])*e; }
+    return keys[keys.length-1][1]; };
+  anim.push({obj:sad, axis:'x', keys:[[0,0],[0.9,-60],[3.4,-75],[4.3,0],[6,0]]});
+  anim.push({obj:sad, axis:'z', keys:[[0,-60],[0.9,0],[3.6,0],[4.1,-60],[6,-60]]});
+  const CYCLE=6; let T=0;
+  function setTime(t){
+    T=((t%CYCLE)+CYCLE)%CYCLE;
+    for(const a of anim) a.obj.position[a.axis]=kf(T,a.keys);
+    spin.rotation.x = Math.floor(T*14)*Math.PI/2;      // 90 deg steps: AABB stays exact
+    idx.rotation.x  = (T>=4.7? -Math.PI/2 : 0);         // turret indexes two stations
+  }
+  setTime(0);
+  return {
+    views:{photo:[0.8,0.33,1.0], rear:[-0.85,0.42,-1.15]},
+    steps:[{t:0,label:'bar clamped'},{t:0.9,label:'rapid approach'},{t:3.4,label:'OD turning'},
+           {t:4.3,label:'retract'},{t:5.5,label:'turret index'}],
+    setTime,
+    update(dt){ setTime(T+dt); return true; }
+  };
+}
+const MODEL_INFO = build();
+/* ===== /MODEL ===== */
+
+/* ---------- framing: fit camera + scale ground/contact to the model ---------- */
+const bb = new THREE.Box3(), sz = new THREE.Vector3(), ctr = new THREE.Vector3();
+function fit(dir = [1, 0.62, 1.25], pad = 1.22){
+  bb.setFromObject(root); bb.getSize(sz); bb.getCenter(ctr);
+  const r = Math.max(sz.length()/2, 1);
+  const vFov = camera.fov*Math.PI/180;
+  const hFov = 2*Math.atan(Math.tan(vFov/2)*camera.aspect);
+  const dist = Math.max(r/Math.sin(vFov/2), r/Math.sin(hFov/2))*pad;
+  const dn = new THREE.Vector3(...dir).normalize();
+  camera.up.set(0, 1, 0); if (Math.abs(dn.y) > 0.97) camera.up.set(0, 0, -Math.sign(dn.y));
+  const d = dn.clone().multiplyScalar(dist);
+  camera.near = Math.max(r*0.01, 0.5); camera.far = r*80; camera.updateProjectionMatrix();
+  camera.position.copy(ctr).add(d); controls.target.copy(ctr); controls.update();
+  const floorY = bb.min.y - r*0.002;
+  ground.position.set(ctr.x, floorY, ctr.z); ground.scale.setScalar(r*7);
+  contact.position.set(ctr.x, floorY + r*0.0015, ctr.z);
+  contact.scale.set(Math.max(sz.x, sz.z)*1.95, 1, Math.max(sz.x, sz.z)*1.95);
+  key.position.copy(ctr).add(new THREE.Vector3(-r*1.15, r*2.4, r*1.05));
+  key.target.position.copy(ctr);
+  const sc = key.shadow.camera; sc.left=-r*1.8; sc.right=r*1.8; sc.top=r*1.8; sc.bottom=-r*1.8;
+  sc.near = r*0.05; sc.far = r*9; sc.updateProjectionMatrix();
+  rim.position.copy(ctr).add(new THREE.Vector3(r*1.9, r*0.8, -r*1.8));
+  needsRender = true;
+}
+const VIEWS = Object.assign({
+  iso:[1,0.62,1.25], front:[0,0.02,1], back:[0,0.02,-1], left:[-1,0.02,0], right:[1,0.02,0],
+  top:[0,1,0.0001], bottom:[0,-1,0.0001], hero:[1.1,0.45,0.75]
+}, MODEL_INFO.views || {});
+
+// Close-up camera presets for inspecting the upgraded Turret, Chuck, and FANUC 21i-TB Panel
+const CLOSEUP_VIEWS = {
+  turret: { pos: [-45, 1285, 690], target: [265, 1140, 25] },
+  chuck:  { pos: [330, 1165, 670], target: [35, 1065, 95] },
+  panel:  { pos: [580, 1365, 1690], target: [580, 1375, 615] }
+};
+const setView = n => {
+  if (CLOSEUP_VIEWS[n]) {
+    const c = CLOSEUP_VIEWS[n];
+    camera.up.set(0, 1, 0);
+    camera.position.set(...c.pos);
+    controls.target.set(...c.target);
+    controls.update();
+    needsRender = true;
+  } else if (VIEWS[n]) {
+    fit(VIEWS[n], n === 'top' ? 1.1 : 1.22);
+  }
+};
+
+/* ---------- post: GTAO (contact shade) + a whisper of bloom ---------- */
+let composer = null;
+try {
+  const rt = new THREE.WebGLRenderTarget(1, 1, {samples:4, type:THREE.HalfFloatType});
+  composer = new EffectComposer(renderer, rt);
+  composer.addPass(new RenderPass(scene, camera));
+  const ao = new GTAOPass(scene, camera, 1, 1);
+  ao.updateGtaoMaterial({radius:0.14, distanceExponent:1.4, thickness:1.0, scale:1.0, samples:16,
+                         screenSpaceRadius:true});
+  composer.addPass(ao);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1,1), 0.11, 0.5, 0.92);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+  composer._ao = ao;
+} catch(e){ console.warn('post-fx off:', e.message); composer = null; }
+
+/* ---------- loop: render on demand + adaptive quality ---------- */
+let needsRender = true, spinning = false, clock = new THREE.Clock();
+let moving = false, lastMove = 0, hiDirty = false;
+const MOVE_SETTLE = 180;   // ms of stillness before the pretty frame is drawn
+function markMoving(){ moving = true; lastMove = performance.now(); needsRender = true; }
+function draw(fast){ (composer && !fast) ? composer.render() : renderer.render(scene, camera); }
+function resize(){
+  const w = stage.clientWidth || 1, h = stage.clientHeight || 1;
+  renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix();
+  if (composer) composer.setSize(w, h);
+  needsRender = true;
+}
+addEventListener('resize', resize);
+function tick(){
+  const dt = clock.getDelta();
+  if (spinning){ root.rotation.y += dt*0.35; markMoving(); }
+  if (MODEL_INFO.update && MODEL_INFO.update(dt)) markMoving();
+  if (controls.update()) needsRender = true;
+  const now = performance.now();
+  if (moving && now - lastMove > MOVE_SETTLE){ moving = false; hiDirty = true; }
+  if (needsRender){ needsRender = false; draw(moving); if (moving) hiDirty = true; }
+  else if (hiDirty && !moving){ hiDirty = false; draw(false); }
+  requestAnimationFrame(tick);
+}
+
+/* ---------- i18n (opens in English; VI/JA for the floor and for Japan) ---------- */
+const T = {
+  en:{l_view:'View',l_look:'Look',l_exp:'Exposure',l_spin:'Turntable',l_parts:'Parts',
+      l_allon:'Show all',l_reset:'Reset',l_sim:'Simulation',l_kpi:'Cycle time'},
+  vi:{l_view:'Góc nhìn',l_look:'Hiển thị',l_exp:'Độ sáng',l_spin:'Quay',l_parts:'Chi tiết',
+      l_allon:'Hiện tất cả',l_reset:'Đặt lại',l_sim:'Mô phỏng',l_kpi:'Chu kỳ'},
+  ja:{l_view:'ビュー',l_look:'表示',l_exp:'露出',l_spin:'回転',l_parts:'部品',
+      l_allon:'全表示',l_reset:'リセット',l_sim:'シミュレーション',l_kpi:'サイクルタイム'}
+};
+let lang = 'en';
+function setLang(l){
+  lang = l;
+  document.querySelectorAll('[data-t]').forEach(e => { const k = e.dataset.t; if (T[l][k]) e.textContent = T[l][k]; });
+  document.querySelectorAll('#lang button').forEach(b => b.classList.toggle('on', b.dataset.l === l));
+  document.querySelectorAll('#parts .pname').forEach((e,i) => e.textContent = l === 'vi' ? PARTS[i].vi : PARTS[i].name);
+}
+
+/* ---------- UI ---------- */
+const el = (t, p, txt) => { const e = document.createElement(t); if (txt) e.textContent = txt; p.appendChild(e); return e; };
+['en','vi','ja'].forEach(l => { const b = el('button', document.getElementById('lang'), l.toUpperCase());
+  b.dataset.l = l; b.onclick = () => setLang(l); });
+['iso','front','back','left','right','top','rear','turret','chuck','panel'].forEach(v => {
+  const b = el('button', document.getElementById('views'), v);
+  b.onclick = () => setView(v);
+});
+Object.keys(ENVS).forEach(n => { const b = el('button', document.getElementById('envs'), n);
+  b.onclick = () => { applyEnv(n); document.querySelectorAll('#envs button').forEach(x=>x.classList.toggle('on', x===b)); };
+  if (n === 'studio') b.classList.add('on'); });
+document.getElementById('exp').oninput = e => { renderer.toneMappingExposure = +e.target.value; needsRender = true; };
+document.getElementById('spin').onclick = e => { spinning = !spinning; e.target.classList.toggle('on', spinning); };
+document.getElementById('png').onclick = () => capture(2);
+document.getElementById('allon').onclick = () => PARTS.forEach((p,i) => setVis(i, true));
+document.getElementById('reset').onclick = () => location.reload();
+
+const partsBox = document.getElementById('parts');
+PARTS.forEach((p, i) => {
+  const r = el('div', partsBox); r.className = 'row';
+  const eye = el('button', r, '●'); eye.className = 'eye'; eye.onclick = () => setVis(i, !p.obj.visible);
+  const nm = el('span', r, p.name); nm.className = 'pname'; nm.onclick = () => { setView('iso'); select(i); };
+  const col = el('input', r); col.type = 'color';
+  const firstMat = (() => { let m = null; p.obj.traverse(o => { if (!m && o.isMesh) m = o.material; }); return m; })();
+  col.value = '#' + (firstMat ? firstMat.color.getHexString() : 'cccccc');
+  col.oninput = () => { p.obj.traverse(o => { if (o.isMesh) o.material.color.set(col.value); }); needsRender = true; };
+  const op = el('input', r); op.type = 'range'; op.min = 0.1; op.max = 1; op.step = 0.05; op.value = 1;
+  op.style.maxWidth = '54px';
+  op.oninput = () => { p.obj.traverse(o => { if (o.isMesh){ o.material.transparent = +op.value < 1;
+    o.material.opacity = +op.value; o.material.needsUpdate = true; } }); needsRender = true; };
+  p._ui = {eye, nm};
+});
+function setVis(i, v){ const p = PARTS[i]; p.obj.visible = v; p._ui.nm.classList.toggle('off', !v);
+  p._ui.eye.textContent = v ? '●' : '○'; count(); needsRender = true; }
+function count(){ document.getElementById('pcount').textContent =
+  PARTS.filter(p => p.obj.visible).length + '/' + PARTS.length; }
+let selected = -1;
+function select(i){ selected = i; PARTS.forEach((p,k) => p._ui.nm.classList.toggle('sel', k === i)); }
+
+/* ---------- capture ---------- */
+function capture(scale = 2){
+  const w = stage.clientWidth, h = stage.clientHeight, dpr = renderer.getPixelRatio();
+  renderer.setPixelRatio(scale); if (composer) composer.setSize(w, h);
+  draw(false);
+  const url = renderer.domElement.toDataURL('image/png');
+  renderer.setPixelRatio(dpr); if (composer) composer.setSize(w, h); needsRender = true;
+  const a = document.createElement('a'); a.href = url;
+  a.download = (document.title || 'model').replace(/\W+/g,'_') + '_' + Date.now() + '.png'; a.click();
+  return url;
+}
+
+/* ---------- QA API: scripts/measure.mjs, collide.mjs, views.mjs talk to this ---------- */
+window.__model = {
+  THREE, scene, camera, renderer, controls, root, PARTS, MAT, VIEWS, setView, fit, capture,
+  info: MODEL_INFO, unit: 'mm',
+  dims(){ return PARTS.map(p => { const b = new THREE.Box3().setFromObject(p.obj), s = new THREE.Vector3(), c = new THREE.Vector3();
+    b.getSize(s); b.getCenter(c);
+    return {name:p.name, spec:p.spec, size:[+s.x.toFixed(2),+s.y.toFixed(2),+s.z.toFixed(2)],
+            center:[+c.x.toFixed(2),+c.y.toFixed(2),+c.z.toFixed(2)],
+            min:[+b.min.x.toFixed(2),+b.min.y.toFixed(2),+b.min.z.toFixed(2)],
+            max:[+b.max.x.toFixed(2),+b.max.y.toFixed(2),+b.max.z.toFixed(2)],
+            collide:p.collide, moving:p.moving, fastener:p.fastener, decal:p.decal, qty:p.qty}; }); },
+  overall(){ const b = new THREE.Box3().setFromObject(root), s = new THREE.Vector3(); b.getSize(s);
+    return [+s.x.toFixed(2), +s.y.toFixed(2), +s.z.toFixed(2)]; },
+  setTime(t){ if (MODEL_INFO.setTime){ MODEL_INFO.setTime(t); needsRender = true; draw(false); } },
+  render(fast = false){ needsRender = false; moving = false; hiDirty = false; draw(fast); },
+  perf(n = 20){                                  // ms/frame, GPU-synced: [interactive, still]
+    const gl = renderer.getContext(), run = f => { draw(f); gl.finish();
+      const t = performance.now(); for (let i = 0; i < n; i++){ draw(f); gl.finish(); }
+      return +((performance.now() - t)/n).toFixed(2); };
+    return {interactive: run(true), still: run(false), triangles: renderer.info.render.triangles}; }
+};
+
+/* ---------- go ---------- */
+applyEnv('studio'); resize(); fit(); count(); setLang(Q.get('lang') || 'en');
+if (Q.get('view')) setView(Q.get('view'));
+if (Q.get('spin') === '1') { spinning = true; }
+document.getElementById('hud').textContent = PARTS.length + ' parts · mm · drag = rotate, wheel = zoom';
+tick();
+requestAnimationFrame(() => requestAnimationFrame(() => { window.__ready = true; }));
+</script>
+</body>
+</html>

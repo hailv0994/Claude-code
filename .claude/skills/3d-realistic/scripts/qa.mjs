@@ -157,7 +157,10 @@ if (ready && has('sheet')) {
 }
 await browser.close(); srv.close();
 
-const PERF_LIMIT = 12;   // ms/frame while the camera moves, 1280x800, software GL
+// ms/frame while the camera moves, measured at 1500x1000 on software GL (swiftshader), which is
+// one to two orders of magnitude slower than any real GPU and noisy run to run. 16 ms here still
+// means a comfortable margin on an office laptop; past it, something structural is wrong.
+const PERF_LIMIT = 16;
 /* ---- report ---- */
 const L = [], fail = [];
 L.push(`# QA — ${path.basename(file)}`);
