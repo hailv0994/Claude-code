@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --line:#e2e5ea; --ink:#1b1f24; --dim:#6b7280;
+    --accent:#c8102e; --sbw:272px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);
+    font:14px/1.45 "Meiryo UI",Meiryo,Arial,"Segoe UI",sans-serif;color:var(--ink)}
+  #stage{position:fixed;inset:0 0 0 var(--sbw)}
+  #stage canvas{display:block;width:100%;height:100%}
+  #sb{position:fixed;top:0;left:0;bottom:0;width:var(--sbw);background:var(--panel);
+    border-right:1px solid var(--line);display:flex;flex-direction:column;z-index:10}
+  #sb h1{margin:0;padding:12px 14px 10px;font-size:15px;font-weight:700;border-bottom:1px solid var(--line)}
+  #sb h1 small{display:block;font-weight:400;font-size:11.5px;color:var(--dim);margin-top:2px}
+  #sb .body{flex:1;overflow:auto;padding:10px 12px 16px}
+  .grp{margin-bottom:14px}
+  .grp>.lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:0 0 6px}
+  .row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+  button{font:inherit;font-size:12.5px;padding:5px 9px;border:1px solid var(--line);background:#fff;
+    border-radius:5px;color:var(--ink);cursor:pointer}
+  button:hover{background:#f0f2f5}
+  button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  input[type=range]{flex:1;min-width:0;accent-color:var(--accent)}
+  input[type=color]{width:24px;height:20px;padding:0;border:1px solid var(--line);border-radius:3px;background:#fff}
+  .pname{flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+  .pname.off{color:#aeb4bd;text-decoration:line-through}
+  .pname.sel{color:var(--accent);font-weight:700}
+  .eye{width:22px;text-align:center;padding:2px 0;font-size:12px}
+  .kpi{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;border-bottom:1px dotted var(--line)}
+  .kpi b{font-variant-numeric:tabular-nums}
+  #hud{position:fixed;right:14px;bottom:12px;font-size:12px;color:var(--dim);
+    background:rgba(255,255,255,.78);padding:4px 9px;border-radius:5px;z-index:9}
+  .hidehud #sb,.hidehud #hud{display:none}
+  .hidehud #stage{left:0}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<aside id="sb">
+  <h1><span data-t="title">__TITLE__</span><small data-t="sub">__SUBTITLE__</small></h1>
+  <div class="body">
+    <div class="grp"><div class="row" id="lang"></div></div>
+    <div class="grp" id="g-view"><p class="lbl" data-t="l_view">View</p><div class="row" id="views"></div></div>
+    <div class="grp" id="g-sim" hidden><p class="lbl" data-t="l_sim">Simulation</p><div class="row" id="sim"></div></div>
+    <div class="grp" id="g-kpi" hidden><p class="lbl" data-t="l_kpi">Cycle time</p><div id="kpis"></div></div>
+    <div class="grp"><p class="lbl" data-t="l_look">Look</p>
+      <div class="row"><span style="width:62px;font-size:12px" data-t="l_exp">Exposure</span><input id="exp" type="range" min="0.4" max="2" step="0.02" value="0.92"></div>
+      <div class="row" id="envs"></div>
+      <div class="row"><button id="png">PNG 2x</button><button id="spin" data-t="l_spin">Turntable</button></div>
+    </div>
+    <div class="grp"><p class="lbl" data-t="l_parts">Parts</p>
+      <div class="row"><button id="allon" data-t="l_allon">Show all</button><button id="reset" data-t="l_reset">Reset</button><span id="pcount" style="font-size:11.5px;color:var(--dim)"></span></div>
+      <div id="parts"></div>
+    </div>
+  </div>
+</aside>
+<div id="hud"></div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.180.0/build/three.module.js",
+ "three/addons/":"https://unpkg.com/three@0.180.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
+import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
+import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
+import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
+import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
+
+/* ============================================================
+   SCENE UNIT = 1 mm.  All dimensions below are millimetres.
+   ============================================================ */
+const Q = new URLSearchParams(location.search);
+if (Q.get('hud') === '0') document.body.classList.add('hidehud');
+
+/* ---------- renderer ---------- */
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({antialias:false, alpha:false, preserveDrawingBuffer:true,
+  powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;   // never render untonemapped
+renderer.toneMappingExposure = 0.92;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.VSMShadowMap;          // soft, no acne on curved parts
+stage.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, 1, 1, 60000); // 32mm-ish: product lens, low distortion
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.075;
+controls.addEventListener('change', () => needsRender = true);
+
+/* ---------- environment (image-based lighting = the realism backbone) ---------- */
+const pmrem = new THREE.PMREMGenerator(renderer);
+const ENVS = {
+  studio: () => pmrem.fromScene(new RoomEnvironment(), 0.04).texture,
+  soft:   () => pmrem.fromScene(gradientEnv(0xf3f4f6, 0xc9ced6), 0.06).texture,
+  shop:   () => pmrem.fromScene(gradientEnv(0xdfe4ea, 0x7c838d), 0.05).texture
+};
+function gradientEnv(top, bottom){
+  const s = new THREE.Scene();
+  const g = new THREE.SphereGeometry(1000, 32, 16);
+  const m = new THREE.ShaderMaterial({side:THREE.BackSide, uniforms:{
+      a:{value:new THREE.Color(top)}, b:{value:new THREE.Color(bottom)}},
+    vertexShader:'varying float h;void main(){h=normalize(position).y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader:'uniform vec3 a,b;varying float h;void main(){gl_FragColor=vec4(mix(b,a,smoothstep(-.25,.65,h))*1.6,1.);}'});
+  s.add(new THREE.Mesh(g, m));
+  // two bright soft panels = believable speculars on metal
+  const panel = (x,y,z,w,hh,i)=>{const p=new THREE.Mesh(new THREE.PlaneGeometry(w,hh),
+    new THREE.MeshBasicMaterial({color:0xffffff}));p.material.color.multiplyScalar(i);
+    p.position.set(x,y,z);p.lookAt(0,0,0);s.add(p);};
+  panel(-420, 520, 330, 700, 420, 7); panel(480, 300, -260, 500, 500, 3.2);
+  return s;
+}
+let envName = 'studio';
+function applyEnv(name){
+  envName = name;
+  const t = ENVS[name]();
+  scene.environment = t;
+  scene.environmentIntensity = 1.0;
+  scene.background = new THREE.Color(name === 'shop' ? 0x8f969e : 0xdfe3e7);
+  needsRender = true;
+}
+
+/* ---------- lights: IBL + 1 shadow key + rim. Never ambient-only. ---------- */
+const key = new THREE.DirectionalLight(0xfff6ea, 2.6);
+key.castShadow = true; key.shadow.mapSize.set(2048, 2048);
+key.shadow.radius = 5; key.shadow.blurSamples = 16; key.shadow.bias = -0.0004;
+scene.add(key, key.target);
+const rim = new THREE.DirectionalLight(0xdfe9ff, 0.85); scene.add(rim);
+const fill = new THREE.HemisphereLight(0xffffff, 0x9fa6ad, 0.25); scene.add(fill);
+
+/* ---------- procedural imperfection maps (kills the "CG plastic" look) ---------- */
+function noiseCanvas(size, cells, contrast){
+  // seamless smooth value-noise: wear, smudge and cast grain in the roughness channel
+  const rnd=(x,y,o)=>{let t=(x*73856093^y*19349663^o*83492791)+0x6D2B79F5;
+    t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return((t^t>>>14)>>>0)/4294967296;};
+  const sm=t=>t*t*(3-2*t);
+  const oct=(u,v,f,o)=>{const x=u*f,y=v*f,xi=Math.floor(x),yi=Math.floor(y),tx=sm(x-xi),ty=sm(y-yi);
+    const w=(a,b)=>rnd(((a%f)+f)%f,((b%f)+f)%f,o);
+    return (w(xi,yi)*(1-tx)+w(xi+1,yi)*tx)*(1-ty)+(w(xi,yi+1)*(1-tx)+w(xi+1,yi+1)*tx)*ty;};
+  const c=document.createElement('canvas'); c.width=c.height=size;
+  const x=c.getContext('2d'), d=x.createImageData(size,size);
+  for(let i=0;i<size*size;i++){
+    const u=(i%size)/size, v=((i/size)|0)/size;
+    let n=0, amp=1, f=cells, tot=0;
+    for(let o=0;o<4;o++){ n+=amp*oct(u,v,f,o); tot+=amp; amp*=0.5; f*=2; }
+    const val = 1 - contrast*0.5 + (n/tot - 0.5)*contrast;   // biased to 1: the map multiplies roughness
+    const g = Math.max(0,Math.min(255, val*255))|0;
+    d.data[i*4]=d.data[i*4+1]=d.data[i*4+2]=g; d.data[i*4+3]=255;
+  }
+  x.putImageData(d,0,0);
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const ROUGH = noiseCanvas(256, 5, 0.34);   // roughness variation: smudges, wear, cast grain
+const BRUSH = (()=>{                         // brushed-metal anisotropy direction
+  const c=document.createElement('canvas');c.width=c.height=512;const x=c.getContext('2d');
+  x.fillStyle='#8080ff';x.fillRect(0,0,512,512);
+  for(let i=0;i<1400;i++){const y=Math.random()*512,a=10+Math.random()*26;
+    x.strokeStyle=`rgba(${128+(Math.random()*2-1)*5|0},${128+(Math.random()*2-1)*5|0},255,${a/255})`;
+    x.beginPath();x.moveTo(0,y);x.lineTo(512,y+(Math.random()*2-1));x.stroke();}
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;})();
+
+/* ---------- material library (measured-ish PBR, see references/materials.md) ---------- */
+const MAT = {};
+function mk(name, p, {rough = 0.12, repeat = 2} = {}){
+  const m = new THREE.MeshPhysicalMaterial(p);
+  if (rough > 0){ m.roughnessMap = ROUGH.clone(); m.roughnessMap.needsUpdate = true;
+    m.roughnessMap.repeat.set(repeat, repeat); m.roughness = Math.max(0.02, m.roughness); }
+  m.envMapIntensity = p.envMapIntensity ?? 1.0;
+  MAT[name] = m; return m;
+}
+mk('paint_gloss',  {color:0xc8102e, metalness:0, roughness:0.30, clearcoat:1, clearcoatRoughness:0.07});
+mk('paint_satin',  {color:0x2f3338, metalness:0, roughness:0.46, clearcoat:0.55, clearcoatRoughness:0.26});
+mk('alu_anodized', {color:0x9ba1a7, metalness:1, roughness:0.38});
+mk('alu_brushed',  {color:0xa8aeb4, metalness:1, roughness:0.30, anisotropy:0.45});
+MAT.alu_brushed.anisotropyMap = BRUSH; BRUSH.repeat.set(1, 6);
+mk('steel_machined',{color:0xbcc1c7, metalness:1, roughness:0.22});
+mk('steel_cast',   {color:0x7b8086, metalness:1, roughness:0.64}, {repeat:5});
+mk('zinc_plated',  {color:0xb7bbc0, metalness:1, roughness:0.42});
+mk('black_oxide',  {color:0x2a2c2f, metalness:1, roughness:0.52});
+mk('brass',        {color:0xd3af67, metalness:1, roughness:0.28});
+mk('plastic_abs',  {color:0xe8e9eb, metalness:0, roughness:0.44, clearcoat:0.18, clearcoatRoughness:0.3});
+mk('nylon_matte',  {color:0x3b3f44, metalness:0, roughness:0.78}, {repeat:6});
+mk('rubber',       {color:0x1c1e20, metalness:0, roughness:0.92}, {repeat:7});
+mk('glass',        {color:0xffffff, metalness:0, roughness:0.035, transmission:1, ior:1.52,
+                    thickness:3, specularIntensity:1}, {rough:0});
+mk('oil',          {color:0xc7a04e, metalness:0, roughness:0.12, transmission:0.86, ior:1.47,
+                    thickness:12}, {rough:0});
+const matClone = (n, color) => { const m = MAT[n].clone(); if (color !== undefined) m.color.set(color); return m; };
+
+/* ---------- ground: shadow catcher + contact AO (objects must sit, not float) ---------- */
+const ground = new THREE.Mesh(new THREE.CircleGeometry(1, 96).rotateX(-Math.PI/2),
+  new THREE.MeshPhysicalMaterial({color:0xb9bec4, roughness:0.5, metalness:0,
+    roughnessMap:ROUGH.clone(), envMapIntensity:0.9}));
+ground.material.roughnessMap.repeat.set(9,9);
+ground.receiveShadow = true; scene.add(ground);
+const contact = (()=>{ const c=document.createElement('canvas');c.width=c.height=256;
+  const x=c.getContext('2d'),g=x.createRadialGradient(128,128,8,128,128,126);
+  g.addColorStop(0,'rgba(0,0,0,.42)');g.addColorStop(.45,'rgba(0,0,0,.22)');g.addColorStop(1,'rgba(0,0,0,0)');
+  x.fillStyle=g;x.fillRect(0,0,256,256);
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false}));
+  m.renderOrder=-1; scene.add(m); return m; })();
+
+/* ---------- part registry: every QA script and the sidebar read this ---------- */
+const PARTS = [];           // {name, vi, obj, spec:[L,W,H] mm, qty}
+const root = new THREE.Group(); scene.add(root);
+function part(name, obj, opt = {}){
+  obj.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+  (opt.parent || root).add(obj);
+  obj.name = name;
+  PARTS.push({name, vi: opt.vi || name, obj, spec: opt.spec || null, qty: opt.qty || 1,
+              collide: opt.collide !== false, moving: !!opt.moving,
+              fastener: !!opt.fastener, decal: !!opt.decal});
+  return obj;
+}
+const box = (w,h,d,r=Math.min(w,h,d)*0.035) => new RoundedBoxGeometry(w,h,d,2,Math.max(0.2,Math.min(r, Math.min(w,h,d)/2.2)));
+const cyl = (d,h,seg=48) => new THREE.CylinderGeometry(d/2,d/2,h,seg,1,false);
+// exact OD/ID/H ring with 0.4 chamfers (lathe = real dimensions, no bevel creep)
+const tube = (od,id,h,seg=64,c=0.4) => {
+  const R=od/2, r=id/2, y0=-h/2, y1=h/2;
+  const pts=[[r,y0],[R-c,y0],[R,y0+c],[R,y1-c],[R-c,y1],[r+c,y1],[r,y1-c],[r,y0+c],[r+c,y0],[r,y0]]
+    .map(([x,y])=>new THREE.Vector2(x,y));
+  const g=new THREE.LatheGeometry(pts,seg); g.computeVertexNormals(); return g;
+};
+// ISO 4017 hex bolt: head height 0.7d, across-flats 1.6d (M5 -> s=8, k=3.5)
+const hexBolt = (d, len) => {
+  const grp = new THREE.Group(), k = d*0.7, R = d*0.8/Math.cos(Math.PI/6);
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(R,R,k,6), MAT.zinc_plated);
+  head.position.y = k/2; grp.add(head);
+  const sh = new THREE.Mesh(cyl(d, len, 24), MAT.zinc_plated); sh.position.y = -len/2; grp.add(sh);
+  return grp;
+};
+
+/* ============================================================
+   ===== MODEL =====  replace everything between these marks.
+   Build real geometry from the spec sheet: fillets/chamfers on every
+   visible edge, no primitive stand-ins, parts must touch where they bolt.
+   ============================================================ */
+function build(){
+  const b = part('Housing', new THREE.Mesh(box(120, 46, 80, 4), matClone('alu_anodized')),
+                 {vi:'Thân vỏ', spec:[120,80,46]});
+  const lid = part('Cover plate', new THREE.Mesh(box(112, 5, 72, 1.2), matClone('alu_brushed')),
+                 {vi:'Nắp', spec:[112,72,5]});
+  lid.position.y = 25.5;
+  const ring = part('Lens ring', new THREE.Mesh(tube(44, 34, 7), matClone('steel_machined')),
+                 {vi:'Vòng ống kính', spec:[44,44,7]});
+  ring.position.set(0, 31.5, 0);  // sits ON the cover: 28 (lid top) + 7/2
+  const lens = part('Lens', new THREE.Mesh(new THREE.SphereGeometry(17, 48, 32, 0, Math.PI*2, 0, Math.PI*0.42), MAT.glass.clone()),
+                 {vi:'Thấu kính', spec:[32.9,32.9,12.8], collide:false});
+  lens.position.set(0, 28.2, 0);  // seated inside the ring bore
+  for (let i = 0; i < 4; i++){
+    const f = part(`Foot ${i+1}`, new THREE.Mesh(cyl(14, 4), matClone('rubber')), {vi:`Chân ${i+1}`, spec:[14,14,4]});
+    f.position.set(i<2?-46:46, -25, i%2?-28:28);
+    const s = part(`Screw M5 ${i+1}`, hexBolt(5, 14), {vi:`Vít M5 ${i+1}`, fastener:true});
+    s.position.set(i<2?-46:46, 28.6, i%2?-28:28);
+  }
+  part('Label', new THREE.Mesh(box(40, 0.4, 16, 0.2), matClone('plastic_abs', 0x202329)),
+       {vi:'Nhãn', spec:[40,16,0.4], decal:true, collide:false}).position.set(0, -8, 40.25);
+  return {views:{}, steps:[]};
+}
+const MODEL_INFO = build();
+/* ===== /MODEL ===== */
+
+/* ---------- framing: fit camera + scale ground/contact to the model ---------- */
+const bb = new THREE.Box3(), sz = new THREE.Vector3(), ctr = new THREE.Vector3();
+function fit(dir = [1, 0.62, 1.25], pad = 1.22){
+  bb.setFromObject(root); bb.getSize(sz); bb.getCenter(ctr);
+  const r = Math.max(sz.length()/2, 1);
+  const vFov = camera.fov*Math.PI/180;
+  const hFov = 2*Math.atan(Math.tan(vFov/2)*camera.aspect);
+  const dist = Math.max(r/Math.sin(vFov/2), r/Math.sin(hFov/2))*pad;
+  const dn = new THREE.Vector3(...dir).normalize();
+  camera.up.set(0, 1, 0); if (Math.abs(dn.y) > 0.97) camera.up.set(0, 0, -Math.sign(dn.y));
+  const d = dn.clone().multiplyScalar(dist);
+  camera.near = Math.max(r*0.01, 0.5); camera.far = r*80; camera.updateProjectionMatrix();
+  camera.position.copy(ctr).add(d); controls.target.copy(ctr); controls.update();
+  const floorY = bb.min.y - r*0.002;
+  ground.position.set(ctr.x, floorY, ctr.z); ground.scale.setScalar(r*7);
+  contact.position.set(ctr.x, floorY + r*0.0015, ctr.z);
+  contact.scale.set(Math.max(sz.x, sz.z)*1.95, 1, Math.max(sz.x, sz.z)*1.95);
+  key.position.copy(ctr).add(new THREE.Vector3(-r*1.15, r*2.4, r*1.05));  // shadow falls away from the iso camera key.target.position.copy(ctr);
+  const sc = key.shadow.camera; sc.left=-r*1.8; sc.right=r*1.8; sc.top=r*1.8; sc.bottom=-r*1.8;
+  sc.near = r*0.05; sc.far = r*9; sc.updateProjectionMatrix();
+  rim.position.copy(ctr).add(new THREE.Vector3(r*1.9, r*0.8, -r*1.8));
+  needsRender = true;
+}
+const VIEWS = Object.assign({
+  iso:[1,0.62,1.25], front:[0,0.02,1], back:[0,0.02,-1], left:[-1,0.02,0], right:[1,0.02,0],
+  top:[0,1,0.0001], bottom:[0,-1,0.0001], hero:[1.1,0.45,0.75]
+}, MODEL_INFO.views || {});
+const setView = n => { if (VIEWS[n]) fit(VIEWS[n], n === 'top' ? 1.1 : 1.22); };
+
+/* ---------- post: GTAO (contact shade) + a whisper of bloom ---------- */
+let composer = null;
+try {
+  const rt = new THREE.WebGLRenderTarget(1, 1, {samples:4, type:THREE.HalfFloatType});
+  composer = new EffectComposer(renderer, rt);
+  composer.addPass(new RenderPass(scene, camera));
+  const ao = new GTAOPass(scene, camera, 1, 1);
+  ao.updateGtaoMaterial({radius:0.14, distanceExponent:1.4, thickness:1.0, scale:1.0, samples:16,
+                         screenSpaceRadius:true});
+  composer.addPass(ao);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1,1), 0.11, 0.5, 0.92);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+  composer._ao = ao;
+} catch(e){ console.warn('post-fx off:', e.message); composer = null; }
+
+/* ---------- loop: render on demand, so a projector laptop stays cool ---------- */
+let needsRender = true, spinning = false, clock = new THREE.Clock();
+function resize(){
+  const w = stage.clientWidth || 1, h = stage.clientHeight || 1;
+  renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix();
+  if (composer) composer.setSize(w, h);
+  needsRender = true;
+}
+addEventListener('resize', resize);
+function tick(){
+  const dt = clock.getDelta();
+  if (spinning){ root.rotation.y += dt*0.35; needsRender = true; }
+  if (MODEL_INFO.update && MODEL_INFO.update(dt)) needsRender = true;
+  if (controls.update()) needsRender = true;
+  if (needsRender){ needsRender = false; composer ? composer.render() : renderer.render(scene, camera); }
+  requestAnimationFrame(tick);
+}
+
+/* ---------- i18n (opens in English; VI/JA for the floor and for Japan) ---------- */
+const T = {
+  en:{l_view:'View',l_look:'Look',l_exp:'Exposure',l_spin:'Turntable',l_parts:'Parts',
+      l_allon:'Show all',l_reset:'Reset',l_sim:'Simulation',l_kpi:'Cycle time'},
+  vi:{l_view:'Góc nhìn',l_look:'Hiển thị',l_exp:'Độ sáng',l_spin:'Quay',l_parts:'Chi tiết',
+      l_allon:'Hiện tất cả',l_reset:'Đặt lại',l_sim:'Mô phỏng',l_kpi:'Chu kỳ'},
+  ja:{l_view:'ビュー',l_look:'表示',l_exp:'露出',l_spin:'回転',l_parts:'部品',
+      l_allon:'全表示',l_reset:'リセット',l_sim:'シミュレーション',l_kpi:'サイクルタイム'}
+};
+let lang = 'en';
+function setLang(l){
+  lang = l;
+  document.querySelectorAll('[data-t]').forEach(e => { const k = e.dataset.t; if (T[l][k]) e.textContent = T[l][k]; });
+  document.querySelectorAll('#lang button').forEach(b => b.classList.toggle('on', b.dataset.l === l));
+  document.querySelectorAll('#parts .pname').forEach((e,i) => e.textContent = l === 'vi' ? PARTS[i].vi : PARTS[i].name);
+}
+
+/* ---------- UI ---------- */
+const el = (t, p, txt) => { const e = document.createElement(t); if (txt) e.textContent = txt; p.appendChild(e); return e; };
+['en','vi','ja'].forEach(l => { const b = el('button', document.getElementById('lang'), l.toUpperCase());
+  b.dataset.l = l; b.onclick = () => setLang(l); });
+['iso','front','left','top','hero'].forEach(v => { const b = el('button', document.getElementById('views'), v);
+  b.onclick = () => setView(v); });
+Object.keys(ENVS).forEach(n => { const b = el('button', document.getElementById('envs'), n);
+  b.onclick = () => { applyEnv(n); document.querySelectorAll('#envs button').forEach(x=>x.classList.toggle('on', x===b)); };
+  if (n === 'studio') b.classList.add('on'); });
+document.getElementById('exp').oninput = e => { renderer.toneMappingExposure = +e.target.value; needsRender = true; };
+document.getElementById('spin').onclick = e => { spinning = !spinning; e.target.classList.toggle('on', spinning); };
+document.getElementById('png').onclick = () => capture(2);
+document.getElementById('allon').onclick = () => PARTS.forEach((p,i) => setVis(i, true));
+document.getElementById('reset').onclick = () => location.reload();
+
+const partsBox = document.getElementById('parts');
+PARTS.forEach((p, i) => {
+  const r = el('div', partsBox); r.className = 'row';
+  const eye = el('button', r, '●'); eye.className = 'eye'; eye.onclick = () => setVis(i, !p.obj.visible);
+  const nm = el('span', r, p.name); nm.className = 'pname'; nm.onclick = () => { setView('iso'); select(i); };
+  const col = el('input', r); col.type = 'color';
+  const firstMat = (() => { let m = null; p.obj.traverse(o => { if (!m && o.isMesh) m = o.material; }); return m; })();
+  col.value = '#' + (firstMat ? firstMat.color.getHexString() : 'cccccc');
+  col.oninput = () => { p.obj.traverse(o => { if (o.isMesh) o.material.color.set(col.value); }); needsRender = true; };
+  const op = el('input', r); op.type = 'range'; op.min = 0.1; op.max = 1; op.step = 0.05; op.value = 1;
+  op.style.maxWidth = '54px';
+  op.oninput = () => { p.obj.traverse(o => { if (o.isMesh){ o.material.transparent = +op.value < 1;
+    o.material.opacity = +op.value; o.material.needsUpdate = true; } }); needsRender = true; };
+  p._ui = {eye, nm};
+});
+function setVis(i, v){ const p = PARTS[i]; p.obj.visible = v; p._ui.nm.classList.toggle('off', !v);
+  p._ui.eye.textContent = v ? '●' : '○'; count(); needsRender = true; }
+function count(){ document.getElementById('pcount').textContent =
+  PARTS.filter(p => p.obj.visible).length + '/' + PARTS.length; }
+let selected = -1;
+function select(i){ selected = i; PARTS.forEach((p,k) => p._ui.nm.classList.toggle('sel', k === i)); }
+
+/* ---------- capture ---------- */
+function capture(scale = 2){
+  const w = stage.clientWidth, h = stage.clientHeight, dpr = renderer.getPixelRatio();
+  renderer.setPixelRatio(scale); if (composer) composer.setSize(w, h);
+  composer ? composer.render() : renderer.render(scene, camera);
+  const url = renderer.domElement.toDataURL('image/png');
+  renderer.setPixelRatio(dpr); if (composer) composer.setSize(w, h); needsRender = true;
+  const a = document.createElement('a'); a.href = url;
+  a.download = (document.title || 'model').replace(/\W+/g,'_') + '_' + Date.now() + '.png'; a.click();
+  return url;
+}
+
+/* ---------- QA API: scripts/measure.mjs, collide.mjs, views.mjs talk to this ---------- */
+window.__model = {
+  THREE, scene, camera, renderer, controls, root, PARTS, MAT, VIEWS, setView, fit, capture,
+  info: MODEL_INFO, unit: 'mm',
+  dims(){ return PARTS.map(p => { const b = new THREE.Box3().setFromObject(p.obj), s = new THREE.Vector3(), c = new THREE.Vector3();
+    b.getSize(s); b.getCenter(c);
+    return {name:p.name, spec:p.spec, size:[+s.x.toFixed(2),+s.y.toFixed(2),+s.z.toFixed(2)],
+            center:[+c.x.toFixed(2),+c.y.toFixed(2),+c.z.toFixed(2)],
+            min:[+b.min.x.toFixed(2),+b.min.y.toFixed(2),+b.min.z.toFixed(2)],
+            max:[+b.max.x.toFixed(2),+b.max.y.toFixed(2),+b.max.z.toFixed(2)],
+            collide:p.collide, moving:p.moving, fastener:p.fastener, decal:p.decal, qty:p.qty}; }); },
+  overall(){ const b = new THREE.Box3().setFromObject(root), s = new THREE.Vector3(); b.getSize(s);
+    return [+s.x.toFixed(2), +s.y.toFixed(2), +s.z.toFixed(2)]; },
+  setTime(t){ if (MODEL_INFO.setTime){ MODEL_INFO.setTime(t); needsRender = true;
+    composer ? composer.render() : renderer.render(scene, camera); } },
+  render(){ needsRender = false; composer ? composer.render() : renderer.render(scene, camera); }
+};
+
+/* ---------- go ---------- */
+applyEnv('studio'); resize(); fit(); count(); setLang(Q.get('lang') || 'en');
+if (Q.get('view')) setView(Q.get('view'));
+if (Q.get('spin') === '1') { spinning = true; }
+document.getElementById('hud').textContent = PARTS.length + ' parts · mm · drag = rotate, wheel = zoom';
+tick();
+requestAnimationFrame(() => requestAnimationFrame(() => { window.__ready = true; }));
+</script>
+</body>
+</html>
