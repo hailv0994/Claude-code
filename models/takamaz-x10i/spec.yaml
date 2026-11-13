@@ -1,23 +1,56 @@
-subject: TAKAMAZ X-10i  compact 1-spindle 1-turret CNC lathe (Takamatsu Machinery)
+subject: TAKAMAZ X-10i  1-spindle 1-turret CNC lathe (Takamatsu Machinery), predecessor of the current XT-6
 sources:
-  - https://equipt.com/listings/81800-used-2003-takamatsu-x-10i-cnc-lathes-in-north-carolina   # via search snippet only (host unreachable by fetch): weight, lathe-unit dims, swing, dia, length, chuck, rpm, control
-  - https://www.yuasa-intl.com/takamaz-XD-10i.html   # sibling XD-10i (twin spindle), NOT X-10i; only used for estimates
+  - https://equipt.com/listings/81800-used-2003-takamatsu-x-10i-cnc-lathes-in-north-carolina   # X-10i listing (search snippet; fetch failed DNS): 1369x1359x1720 (53.9x53.5x67.7 in), 2200 kg, swing 320, dia 180, len 190, 6in chuck, 3500 rpm, FANUC 21i-TB
+  - https://www.takamaz.co.jp/product/2199/   # XT-6 (current successor, maker page): footprint 1360x1370, spindle bore 75, X120/Z280, 8-station turret, 7.5/5.5 kW, 4500 rpm, rapid 18/24. Corroborates X-10i footprint. Also source of ref/ photos.
+  - X-10i itself is not on takamaz.co.jp (discontinued); https://www.yuasa-intl.com/pdfs/XCXLseries.pdf is XC/XL only, no X-10i.
 units: mm
-datum: floor at centre of machine footprint, spindle axis along X (left-right), Y up
-overall: [1369, 1359, 1720]   # W x D x H from listing 53.9x53.5x67.7 in (lathe unit only, excl. chip conveyor / controller extras) - unverified against maker catalogue
-parts: []   # not populated: no maker drawing reached; modeler builds from overall + unknown estimates
-facts:
-  weight_kg: 2200            # listing
-  swing_mm: 320              # listing
-  max_turning_dia_mm: 180    # listing (another listing says 165 over bed)
-  max_turning_len_mm: 190    # listing (another says 203)
-  chuck: 6 inch
-  spindle_max_rpm: 3500      # listing
-  control: FANUC 21i-TB
+datum: floor, centre of footprint. X = left-right (operator view, +X right), Z = depth (front/operator side is -Z), Y = up
+overall: [1360, 1370, 1720]   # W x D x H; W,D match XT-6 maker page, H from X-10i listing
+spindle_axis: along X, Y=1000 (estimate), z=-120
+parts:
+  - {name: Levelling feet, qty: 6, material: steel_painted, dims: [90, 90, 40], pos: [0, 0, 0], shape: custom, features: [Ø80 pad with M20 screw, 6 positions at x=±600, 0 ; z=±600], note: "positions listed as feet at corners and mid-sides, top at y=40"}
+  - {name: Base casting (bed + pedestal), material: cast_iron_painted_grey, dims: [1300, 1300, 700], pos: [0, 390, 0], shape: block, features: [slant-less box casting, front chamfer, spindle-side bolt pad]}
+  - {name: Lower front panel, material: sheet_steel_light_grey, dims: [820, 20, 560], pos: [-240, 360, -675], shape: plate, features: [access doors, 2 flush handles]}
+  - {name: Enclosure body (left/centre), material: sheet_steel_light_grey, dims: [880, 1250, 1020], pos: [-240, 1180, 0], shape: block, features: [roof slightly sloped, louvre vent panel on front-left 250x300]}
+  - {name: Operator sliding door, material: sheet_steel_light_grey, dims: [400, 25, 560], pos: [-130, 1150, -690], shape: plate, features: [slides left over fixed panel, vertical handle, rail along top]}
+  - {name: Door window, material: glass_clear, dims: [320, 6, 440], pos: [-130, 1150, -705], shape: plate, features: [polycarbonate, dark grey frame]}
+  - {name: Logo panel TAKAMAZ, material: paint_orange, dims: [160, 4, 40], pos: [-440, 1580, -690], shape: plate, features: [orange TAKAMAZ wordmark on dark strip, top-left of front]}
+  - {name: Operator column (control side), material: sheet_steel_dark_grey, dims: [460, 1300, 1480], pos: [450, 1000, 0], shape: block, features: [taller than enclosure, right side of machine]}
+  - {name: Control panel / pendant, material: sheet_steel_dark_grey, dims: [320, 130, 520], pos: [450, 1260, -740], shape: plate, features: [FANUC 8.4in LCD upper, MDI keys below, handwheel and switch row, angled 10 deg]}
+  - {name: Signal tower, material: steel_black, dims: [50, 50, 150], pos: [560, 1790, 0], shape: tube, features: [3 stack lamps on top of operator column, + thin antenna rod], note: top exceeds 1720 by lamp; reduce column if inspector complains}
+  - {name: Spindle headstock, material: cast_iron_painted_grey, dims: [520, 420, 450], pos: [-420, 1000, -120], shape: block, features: [spindle bore Ø75, on bed left end]}
+  - {name: Chuck (6in), material: steel_bright, dims: [60, 170, 170], pos: [-130, 1000, -120], shape: lathe, features: [Ø170 three-jaw or collet, nose facing +X, 3 jaws]}
+  - {name: Turret / tool plate (8 stn), material: steel_bright, dims: [200, 260, 260], pos: [250, 1000, -120], shape: lathe, features: [8-station disc, Ø260, axis parallel to Z]}
+  - {name: Turret slide (X/Z saddle), material: cast_iron_painted_grey, dims: [400, 400, 300], pos: [250, 900, 40], shape: block, features: [X120 / Z280 travel]}
+  - {name: Way cover front (telescopic), material: stainless, dims: [500, 20, 200], pos: [100, 700, -400], shape: plate, features: [stainless telescopic Z cover under door window]}
+  - {name: Chip pan / chip tray, material: stainless, dims: [900, 900, 120], pos: [-100, 130, -50], shape: plate, features: [drawer under machining area, hinged front]}
+  - {name: Coolant tank, material: sheet_steel_dark_grey, dims: [420, 420, 400], pos: [450, 300, -480], shape: block, features: [lower right front, pull-out, pump on top]}
+  - {name: Rear cabinet / electrical box, material: sheet_steel_dark_grey, dims: [700, 300, 900], pos: [0, 800, 590], shape: block, features: [rear, NC cabinet fans]}
+motion:
+  - {part: Operator sliding door, axis: x, from: 0, to: -250, t: [0.0, 1.0]}
+  - {part: Turret slide (X/Z saddle), axis: x, from: 0, to: -280, t: [1.0, 3.0]}
+interfaces:
+  - [Base casting (bed + pedestal), Levelling feet, 6x M20]
+  - [Spindle headstock, Base casting (bed + pedestal), bolted at bed left end]
+  - [Chuck (6in), Spindle headstock, spindle nose]
+  - [Turret slide (X/Z saddle), Base casting (bed + pedestal), cross slide ways]
+  - [Turret / tool plate (8 stn), Turret slide (X/Z saddle), turret seat]
+  - [Enclosure body (left/centre), Base casting (bed + pedestal), sheet-metal frame]
+  - [Operator column (control side), Base casting (bed + pedestal), sheet-metal frame]
+  - [Control panel / pendant, Operator column (control side), flush mounted]
+  - [Signal tower, Operator column (control side), on roof]
+  - [Coolant tank, Base casting (bed + pedestal), under-base pocket]
+confirmed:
+  - overall W x D 1360 x 1370 (XT-6 maker page) and 1369 x 1359 (X-10i listing) agree
+  - H 1720 and mass 2200 kg: X-10i listing only
+  - 6 in chuck, max 3500 rpm (X-10i listing); XT-6 4500 rpm
+  - layout (door left, control column right, signal tower top right, coolant tank bottom right, louvre left): from XT-6 photo ref/xt6_front.png
 unknown:
-  - spindle centre height: ≈1000, by analogy with XD-10i 965 (sibling, yuasa-intl snippet)
-  - X/Z travels: ≈X 120-150, Z ≈250, from XD-10i X120 / Z520 scaled to 190 mm length
-  - spindle motor kW: ≈5.5 (class estimate)
-  - turret stations: 8 or 10 (XD-10i has 10); ≈8
-  - door size and window, control panel position, signal tower, chip pan/conveyor, coolant tank, feet, logo panel: no source, estimate from generic enclosed Japanese lathe (front sliding door ≈ 60% of width, panel on right swing arm)
-  - bar feeder interface: unknown
+  - spindle centre height: ≈1000, XD-10i is 965 and XT-6 lowered it; no X-10i figure
+  - X/Z travels: ≈X120 / Z≈250, from XT-6 (X120/Z280); X-10i listing says length 190 so Z probably ~250
+  - motor kW: ≈5.5 (XT-6 7.5/5.5)
+  - stations: 8 (XT-6 standard 8-sided turret); X-10i not confirmed
+  - X-10i-specific exterior (door size, window, panel, logo, column) is taken from XT-6 photo proportions; real X-10i (2003) has an older style with a tilted operator panel
+  - every part dims/pos: estimated by scaling the XT-6 front photo to 1360 x 1720; no drawing found
+  - signal tower: 1720 H probably includes it, so the column is ≈1570 tall in reality
+  - bar feeder interface: none known (XT-6 uses loaders; not a bar machine)
