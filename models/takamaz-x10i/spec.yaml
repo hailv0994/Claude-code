@@ -1,0 +1,23 @@
+subject: TAKAMAZ X-10i  compact 1-spindle 1-turret CNC lathe (Takamatsu Machinery)
+sources:
+  - https://equipt.com/listings/81800-used-2003-takamatsu-x-10i-cnc-lathes-in-north-carolina   # via search snippet only (host unreachable by fetch): weight, lathe-unit dims, swing, dia, length, chuck, rpm, control
+  - https://www.yuasa-intl.com/takamaz-XD-10i.html   # sibling XD-10i (twin spindle), NOT X-10i; only used for estimates
+units: mm
+datum: floor at centre of machine footprint, spindle axis along X (left-right), Y up
+overall: [1369, 1359, 1720]   # W x D x H from listing 53.9x53.5x67.7 in (lathe unit only, excl. chip conveyor / controller extras) - unverified against maker catalogue
+parts: []   # not populated: no maker drawing reached; modeler builds from overall + unknown estimates
+facts:
+  weight_kg: 2200            # listing
+  swing_mm: 320              # listing
+  max_turning_dia_mm: 180    # listing (another listing says 165 over bed)
+  max_turning_len_mm: 190    # listing (another says 203)
+  chuck: 6 inch
+  spindle_max_rpm: 3500      # listing
+  control: FANUC 21i-TB
+unknown:
+  - spindle centre height: ≈1000, by analogy with XD-10i 965 (sibling, yuasa-intl snippet)
+  - X/Z travels: ≈X 120-150, Z ≈250, from XD-10i X120 / Z520 scaled to 190 mm length
+  - spindle motor kW: ≈5.5 (class estimate)
+  - turret stations: 8 or 10 (XD-10i has 10); ≈8
+  - door size and window, control panel position, signal tower, chip pan/conveyor, coolant tank, feet, logo panel: no source, estimate from generic enclosed Japanese lathe (front sliding door ≈ 60% of width, panel on right swing arm)
+  - bar feeder interface: unknown
