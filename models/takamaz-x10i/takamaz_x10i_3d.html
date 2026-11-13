@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TAKAMAZ X-10i</title>
+<title>TAKAMAZ X-10</title>
 <style>
   :root{
     --bg:#f4f5f7; --panel:#ffffff; --line:#e2e5ea; --ink:#1b1f24; --dim:#6b7280;
@@ -43,7 +43,7 @@
 <body>
 <div id="stage"></div>
 <aside id="sb">
-  <h1><span data-t="title">TAKAMAZ X-10i</span><small data-t="sub">CNC lathe · 1360 × 1370 × 1720 mm · 2200 kg</small></h1>
+  <h1><span data-t="title">TAKAMAZ X-10</span><small data-t="sub">CNC lathe · Takamatsu Machinery · 1560 x 1300 x 1720 mm</small></h1>
   <div class="body">
     <div class="grp"><div class="row" id="lang"></div></div>
     <div class="grp" id="g-view"><p class="lbl" data-t="l_view">View</p><div class="row" id="views"></div></div>
@@ -257,490 +257,369 @@ const hexBolt = (d, len) => {
    visible edge, no primitive stand-ins, parts must touch where they bolt.
    ============================================================ */
 function build(){
-  const D = THREE.MathUtils.degToRad, PI = Math.PI;
-  /* ---------- finishes (library keys only, cloned before recolouring) ---------- */
-  const M = {
-    cover : matClone('paint_satin', 0xc9c7be),    // warm light grey sheet metal
-    plinth: matClone('paint_satin', 0x6a6e73),    // plinth / chip drawer face
-    dark  : matClone('paint_satin', 0x8e9196),    // operator column / cabinets
-    cast  : matClone('paint_satin', 0x9aa0a5),    // painted castings
-    bed   : matClone('steel_cast',  0x6e7479),    // raw bed casting inside
-    ss    : matClone('steel_machined', 0xc6cbd1), // stainless way cover / chip pan
-    steel : matClone('steel_machined'),           // chuck, turret, spindle nose
-    zinc  : matClone('zinc_plated'),
-    blk   : matClone('black_oxide'),
-    rub   : matClone('rubber'),
-    orange: matClone('paint_gloss', 0xe8631a),    // TAKAMAZ wordmark
-    abs   : matClone('plastic_abs', 0xdcdee0),
-    dkpl  : matClone('plastic_abs', 0x26292d),
-    blue  : matClone('plastic_abs', 0x2f6fd0),    // coolant hose
-    red   : matClone('plastic_abs', 0xff3b2e),
-    amber : matClone('plastic_abs', 0xffb020),
-    green : matClone('plastic_abs', 0x45d978),
-    yel   : matClone('plastic_abs', 0xf2b705),
-    screen: matClone('paint_gloss', 0x16303f),
-    glass : MAT.glass.clone()
-  };
-  M.glass.thickness = 2;  M.glass.ior = 1.42;
+  const D = Math.PI/180;
+  /* ================= palette (sampled from ref/x10_real_3q.png) ================= */
+  const BLUE=0x1f4f99, BLUE_D=0x183f7c, IVORY=0xd6d3c8, IVORY_D=0xc5c1b4,
+        CHAR=0x3b4147, CHAR_D=0x2c3136, LGREY=0xb2b6ba, DARK=0x24272b, ORANGE=0xd95f1e;
+  const Mblue  = matClone('paint_gloss', BLUE),          // glossy enamel + clearcoat
+        MblueD = matClone('paint_gloss', BLUE_D),
+        Mivory = matClone('paint_satin', IVORY),
+        MivoryD= matClone('paint_satin', IVORY_D),
+        Mchar  = matClone('paint_satin', CHAR),
+        McharD = matClone('paint_satin', CHAR_D),
+        Mgrey  = matClone('paint_satin', LGREY),
+        Morange= matClone('paint_gloss', ORANGE),
+        Mred   = matClone('plastic_abs', 0xb4151c),
+        Mgreen = matClone('plastic_abs', 0x1d7a3c),
+        Mamber = matClone('plastic_abs', 0xd98518),
+        Mcast  = MAT.steel_cast, Msteel = MAT.steel_machined, Mzinc = MAT.zinc_plated,
+        Mrub   = MAT.rubber, Mblk = MAT.black_oxide, Mglass = MAT.glass;
 
-  /* the glass window makes three.js render a second scene pass per frame; half-res
-     is visually identical behind 2 mm polycarbonate and keeps the viewer interactive */
-  if ('transmissionResolutionScale' in renderer) renderer.transmissionResolutionScale = 0.35;
+  /* ================= helpers ================= */
+  const Me = (g,m)=>new THREE.Mesh(g,m);
+  const put = (o,x,y,z)=>{o.position.set(x,y,z); return o;};
+  const bxm = (x0,x1,y0,y1,z0,z1,m,r)=>put(Me(box(x1-x0,y1-y0,z1-z0,r===undefined?1.2:r),m),
+                                           (x0+x1)/2,(y0+y1)/2,(z0+z1)/2);
+  // corner-defined box part: design corners ARE the declared spec
+  const P = (name,vi,x0,x1,y0,y1,z0,z1,m,opt={},r)=>part(name, bxm(x0,x1,y0,y1,z0,z1,m,r),
+        Object.assign({vi, spec:[+(x1-x0).toFixed(2), +(z1-z0).toFixed(2), +(y1-y0).toFixed(2)]}, opt));
+  const ctex = (w,h,draw)=>{const c=document.createElement('canvas');c.width=w;c.height=h;
+    const x=c.getContext('2d'); draw(x,w,h);
+    const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=8; return t;};
+  const decal = (name,vi,w,h,x,y,z,tex,col)=>{
+    const m=matClone('paint_satin', col===undefined?0xffffff:col);
+    m.map=tex; m.transparent=true; m.roughness=0.34; m.clearcoat=0.5;
+    m.depthWrite=false; m.polygonOffset=true; m.polygonOffsetFactor=-3;
+    return part(name, put(Me(new THREE.PlaneGeometry(w,h),m),x,y,z), {vi, decal:true, collide:false});};
+  // louvre panel, centred on the origin, face towards local +Z
+  const louvre=(w,h,n,m)=>{
+    const g=new THREE.Group();
+    g.add(put(Me(box(w,h,8,0.6), matClone('paint_satin',0x1b1f22)),0,0,-6));
+    const pitch=h/n;
+    for(let i=0;i<n;i++){ const s=Me(box(w-16,5,17,0.8), m);
+      s.position.set(0, -h/2+pitch*(i+0.5), -3); s.rotation.x=-28*D; g.add(s); }
+    g.add(put(Me(box(w,10,6,0.6),m),0,h/2-5,-1)); g.add(put(Me(box(w,10,6,0.6),m),0,-h/2+5,-1));
+    g.add(put(Me(box(10,h,6,0.6),m),-w/2+5,0,-1)); g.add(put(Me(box(10,h,6,0.6),m),w/2-5,0,-1));
+    return g;};
+  const screw=(x,y,z,d)=>{const g=new THREE.Group();
+    const h=Me(cyl(d||9,2.6,20), Mzinc); h.rotation.x=Math.PI/2; g.add(h);
+    const sl=Me(box((d||9)*0.6,0.9,1.4,0.2), Mblk); sl.position.z=1.3; g.add(sl);
+    return put(g,x,y,z);};
+  const eyebolt=(x,y,z)=>{const g=new THREE.Group();
+    g.add(Me(new THREE.TorusGeometry(26,7,12,28), Mzinc));
+    g.add(put(Me(cyl(24,18,20), Mzinc),0,-26,0));
+    return put(g,x,y,z);};
 
-  const AUTO = [];
-  const last = () => PARTS[PARTS.length-1];
-  const auto = () => { AUTO.push(last()); };
-  const mesh = (g,m) => new THREE.Mesh(g,m);
-  /* box placed by its extents -> spec is exact */
-  function pbox(name, x, y, z, mat, o){
-    o = o || {};
-    const w = x[1]-x[0], h = y[1]-y[0], d = z[1]-z[0];
-    const m = mesh(box(w, h, d, o.r), mat);
-    m.position.set((x[0]+x[1])/2, (y[0]+y[1])/2, (z[0]+z[1])/2);
-    const opt = Object.assign({spec:[+w.toFixed(2), +d.toFixed(2), +h.toFixed(2)]}, o);
-    delete opt.r;
-    return part(name, m, opt);
-  }
-  const mbox = (w,h,d,r,mat,px,py,pz,rx) => {
-    const m = mesh(box(w,h,d,r), mat);
-    m.position.set(px,py,pz); if (rx) m.rotation.x = rx; return m;
-  };
-  /* chamfered solid cylinder */
-  const disc = (d, h, c, seg) => {
-    c = (c===undefined) ? 0.6 : c; seg = seg || 48;
-    const R=d/2, y0=-h/2, y1=h/2;
-    const p=[[0,y0],[R-c,y0],[R,y0+c],[R,y1-c],[R-c,y1],[0,y1]].map(a=>new THREE.Vector2(a[0],a[1]));
-    const g=new THREE.LatheGeometry(p,seg); g.computeVertexNormals(); return g;
-  };
+  /* ============ key dimensions: photo scaled so overall height = 1720 mm ============
+     overall L(X) 1560 · W(Z) 1300 · H(Y) 1720 ; operator side = +Z, right hand = +X   */
+  const FR=642, PF=650, BK=-642, PB=-650;      // structure / panel faces, front and back
+  const PED_L=-700, PED_R=780, PED_T=535;
+  const DECK=745, SPY=1040, SPZ=100, TOPY=1420;
+  const anim=[];
 
-  /* =========================================================
-     DATUM floor y=0, centre of footprint.
-     Envelope  X -680..680 (1360) · Z -685..685 (1370) · Y 0..1720
-     ========================================================= */
-  const FP = -640, T = 3;       // fixed front sheet-metal plane / gauge
-  const DR = -644;              // sliding door plane (runs outside the fixed panels)
-  const SY = 1000, SZ = -120;   // spindle axis
-
-  /* ---------- 1. six levelling feet ---------- */
-  [[-600,-560],[0,-560],[600,-560],[-600,560],[0,560],[600,560]].forEach((p,i)=>{
-    const g = new THREE.Group();
-    const pad = mesh(disc(90,16,1.2), M.rub);  pad.position.y = 8;  g.add(pad);
-    const wsh = mesh(disc(60,6,0.5), M.zinc);  wsh.position.y = 19; g.add(wsh);
-    const nR  = 40/Math.cos(PI/6)/2;
-    const nut = mesh(new THREE.CylinderGeometry(nR,nR,16,6), M.zinc); nut.position.y = 30; g.add(nut);
-    const st  = mesh(disc(22,22,0.5,24), M.zinc); st.position.y = 29; g.add(st);
-    g.position.set(p[0], 0, p[1]);
-    part('Levelling foot '+(i+1), g, {spec:[90,90,40], vi:'Chân cân máy '+(i+1)});
+  /* ================= 1 · floor, blue pedestal ================= */
+  [[-600,470],[-600,-470],[40,470],[40,-470],[700,470],[700,-470]].forEach((p,i)=>{
+    const g=new THREE.Group();
+    g.add(Me(tube(90,22,30,32,1.0), Mcast));
+    g.add(put(Me(cyl(22,22,24), Mzinc),0,22,0));
+    g.add(put(Me(new THREE.CylinderGeometry(19,19,13,6), Mzinc),0,22,0));
+    part(`Levelling foot ${i+1}`, put(g,p[0],15,p[1]),
+         {vi:`Chân đế cân máy ${i+1} (suy đoán)`, spec:[90,90,48]});
   });
+  P('Base skirt','Váy chân đế (suy đoán)', -680,760, 45,80, -580,580, McharD);
+  P('Base pedestal (blue)','Thân đế sơn xanh', PED_L,PED_R, 80,PED_T, BK,FR, Mblue, {}, 6);
 
-  /* ---------- 2. base, pedestal, bed ---------- */
-  pbox('Base frame casting',        [-680,680],[40,300],[-680,680],  M.plinth, {r:5, vi:'Khung đế'});
-  pbox('Bed pedestal',              [-620,580],[300,740],[-220,400], M.cast, {r:5, vi:'Bệ máy'});
-  pbox('Bed casting (slant bed)',   [-620,600],[740,820],[-300,400], M.bed,  {r:3, vi:'Thân băng máy'});
-  pbox('Splash guard (rear)',       [-620,600],[820,1400],[400,403], matClone('steel_cast', 0x4a4f54), {r:1, vi:'Tấm chắn văng'});
+  P('Front centre panel','Tấm vỏ trước giữa', -470,300, 120,500, FR,PF, MblueD, {}, 2);
+  [[-452,138],[-452,482],[282,138],[282,482]].forEach((p,i)=>
+    part(`Front panel screw ${i+1}`, screw(p[0],p[1],PF-1), {vi:`Vít tấm trước ${i+1}`, fastener:true}));
+  decal('Instruction plate','Nhãn hướng dẫn bôi trơn', 150,105, 70,300, PF-0.01,
+    ctex(256,180,(x,w,h)=>{ x.fillStyle='#d9d7cf'; x.fillRect(0,0,w,h);
+      x.strokeStyle='#8e8b84'; x.lineWidth=3; x.strokeRect(3,3,w-6,h-6);
+      x.fillStyle='#23262a'; x.font='bold 17px Arial'; x.fillText('LUBRICATION',16,30);
+      x.font='13px Arial';
+      ['OIL  ISO VG 32','CHECK LEVEL DAILY','FILL TO UPPER LINE','DRAIN EVERY 2000 h','TAKAMATSU MACHINERY']
+        .forEach((s,i)=>x.fillText(s,16,58+i*22)); }));
+  part('Front vent grille', put(louvre(290,170,7,Mblue),505,385,PF-5.7),
+       {vi:'Lưới thông gió trước', spec:[290,17.4,170], collide:false});
 
-  /* ---------- 3. headstock / spindle / chuck ---------- */
-  {
-    const g = new THREE.Group();
-    g.add(mbox(390,340,300,4, M.cast, -425,1010,-130));          // body    X -620..-230
-    g.add(mbox(400,20,340,2.5, M.cast, -420,830,-130));          // foot    Y 820..840, Z -300..40
-    const boss = mesh(disc(250,60,3), M.cast); boss.rotation.z = PI/2; boss.position.set(-260,SY,SZ); g.add(boss);
-    for (let i=0;i<4;i++) g.add(mbox(16,280,22,1.5, M.cast, -570+i*95, 1000, -291));  // front ribs
-    part('Spindle headstock', g, {spec:'auto', vi:'Ụ trục chính'}); auto();
-  }
-  {
-    const g = new THREE.Group();
-    const b = mesh(disc(125,60,1), M.steel); b.rotation.z = PI/2; b.position.set(-190,SY,SZ); g.add(b);
-    const f = mesh(tube(150,80,10,64), M.steel); f.rotation.z = PI/2; f.position.set(-165,SY,SZ); g.add(f);
-    for (let i=0;i<6;i++){ const a=i*PI/3;
-      const h = mesh(disc(13,4,0.3,16), M.blk); h.rotation.z = PI/2;
-      h.position.set(-159, SY+56*Math.cos(a), SZ+56*Math.sin(a)); g.add(h); }
-    part('Spindle nose A2-5', g, {spec:'auto', vi:'Đầu trục chính'}); auto();
-  }
-  {
-    const g = new THREE.Group();
-    const body = mesh(tube(170,62,55,64,1), M.steel); body.rotation.z = PI/2; body.position.set(-132.5,SY,SZ); g.add(body);
-    for (let i=0;i<3;i++){ const a=i*2*PI/3+PI/2;
-      const s = mbox(2,30,172,0.4, M.blk, -105.5, SY, SZ); s.rotation.x = a; g.add(s); }
-    part('Chuck Ø170 (6 in, 3-jaw)', g, {spec:'auto', vi:'Mâm cặp 6 inch'}); auto();
-  }
-  {
-    const g = new THREE.Group();
-    for (let i=0;i<3;i++){ const a=i*2*PI/3+PI/2;
-      const j = new THREE.Group();
-      j.add(mbox(30,56,46,1.2, M.steel, 0,60,0));                // jaw body  r 32..88
-      j.add(mbox(30,20,46,0.8, M.steel, 0,36,0));                // gripping step r 26..46
-      j.rotation.x = a; j.position.set(-90, SY, SZ); g.add(j); }
-    part('Chuck jaws (3, hard top jaw)', g, {spec:'auto', qty:3, vi:'Chấu kẹp (3)'}); auto();
-  }
-  {
-    const b = mesh(disc(56,75,1,48), M.steel); b.rotation.z = PI/2; b.position.set(-37.5,SY,SZ);
-    part('Workpiece Ø56 bar', b, {spec:[75,56,56], collide:false, vi:'Phôi Ø56'});
-  }
+  /* chip / coolant service bay, low at the front right */
+  P('Coolant bay recess','Hốc dung dịch tưới nguội', 390,710, 90,290, FR-130,FR,
+    matClone('paint_satin',0x191c1f), {collide:false}, 1);
+  P('Coolant pump unit','Bơm dung dịch tưới nguội', 555,680, 110,235, FR-100,FR-25, Mgrey, {collide:false});
+  part('Coolant pump motor', put(Me(cyl(78,96,32), Mcast),617,258,FR-62),
+       {vi:'Mô tơ bơm dung dịch', spec:[78,78,96], collide:false});
+  P('Coolant solenoid block','Cụm van điện từ', 428,478, 110,215, FR-85,FR-40,
+    matClone('paint_satin',0x6a6f74), {collide:false});
+  part('Coolant feed hose', (()=>{ const c=new THREE.CatmullRomCurve3([
+      new THREE.Vector3(453,215,FR-62), new THREE.Vector3(470,272,FR-45),
+      new THREE.Vector3(540,250,FR-50), new THREE.Vector3(600,216,FR-62)]);
+      return Me(new THREE.TubeGeometry(c,40,9,14), Mrub);})(),
+      {vi:'Ống cấp dung dịch', spec:[160.3,35.5,74.3], collide:false});
 
-  /* ---------- 4. turret slide assembly (moving) ---------- */
-  const slideG = new THREE.Group(); root.add(slideG);
-  const TRAVEL = 160;
-  pbox('Turret slide (X/Z saddle)', [200,560],[820,980],[-40,320], M.cast,
-       {r:4, moving:true, parent:slideG, vi:'Bàn trượt dao'});
-  {
-    const g = new THREE.Group();
-    g.add(mbox(280,320,300,5, M.cast, 420,1140,90));
-    const bz = mesh(disc(230,24,2), M.cast); bz.rotation.z = PI/2; bz.position.set(292,1150,60); g.add(bz);
-    for (let i=0;i<4;i++){ const a=i*PI/2+PI/4;
-      const bo = hexBolt(12,26); bo.rotation.z = -PI/2;
-      bo.position.set(280, 1150+90*Math.cos(a), 60+90*Math.sin(a)); g.add(bo); }
-    part('Turret head casting', g, {spec:'auto', moving:true, parent:slideG, vi:'Thân đầu rơvonve'}); auto();
-  }
-  {
-    const g = new THREE.Group();
-    const oct = new THREE.CylinderGeometry(140,140,110,8); oct.rotateZ(PI/2);
-    const dsc = mesh(oct, M.steel); dsc.position.set(225,1150,60); g.add(dsc);
-    const face = mesh(tube(250,70,8,64,1), M.steel); face.rotation.z = PI/2; face.position.set(166,1150,60); g.add(face);
-    const hub  = mesh(disc(80,18,1), M.steel);       hub.rotation.z  = PI/2; hub.position.set(161,1150,60); g.add(hub);
-    const PH = Math.atan2(-180, -150) - 5*PI/4;                // station 5 faces the work
-    for (let i=0;i<8;i++){
-      const a = i*PI/4 + PH;
-      const h = new THREE.Group();
-      h.add(mbox(70,46,80,1.5, M.steel, 8,152,0));             // holder block  X 110..180
-      h.add(mbox(40,22,26,0.8, M.blk, -20,152,0));             // tool shank    X 95..135
-      if (i===5) h.add(mbox(26,60,22,0.6, M.blk, -4,180,0));   // turning tool, reaches the bar
-      h.rotation.x = a; h.position.set(135,1150,60); g.add(h);
-      const bo = hexBolt(10,22); bo.rotation.x = a + PI;
-      bo.position.set(150, 1150+176*Math.cos(a), 60+176*Math.sin(a)); g.add(bo);
-    }
-    part('Turret, 8-station Ø280', g, {spec:'auto', moving:true, parent:slideG, vi:'Rơvonve 8 vị trí'}); auto();
-  }
-  /* telescopic Z way cover: 3 overlapping stainless steps that collapse with the slide */
-  const wayG = new THREE.Group(); root.add(wayG);
-  const steps = [];
-  for (let i=0;i<3;i++){
-    const s = mbox(160, 120-i*10, 160-i*10, 1.2, M.ss, 0, 880-i*5, -240+i*5);
-    steps.push(s); wayG.add(s);
-  }
-  part('Way cover, telescopic (3 steps)', wayG, {spec:'auto', moving:true, vi:'Che băng trượt'}); auto();
-  function wayUpdate(){
-    const Xl = 200 + slideG.position.x, W = Xl + 220;
-    for (let i=0;i<3;i++) steps[i].position.x = -220 + (W-160)*(i/2) + 80;
-  }
-  wayUpdate();
+  /* ================= 2 · left front: amber lubrication box + gauge ================= */
+  (()=>{ const g=new THREE.Group();
+    g.add(bxm(-780,-700,180,520, 330,520, McharD, 2));
+    g.add(bxm(-780,-756,230,430, 352,498, Morange, 1.5));
+    g.add(bxm(-784,-700,492,520, 330,520, Mchar, 1.5));
+    g.add(put(Me(cyl(34,16,24), Mzinc),-740,528,425));
+    part('Lubrication unit', g, {vi:'Bộ bôi trơn (hộp cam)', spec:[84,190,356]});})();
+  (()=>{ const g=new THREE.Group(), x=-620, y=430;
+    const r=Me(tube(74,56,16,48,0.8), Mzinc); r.rotation.x=Math.PI/2; g.add(put(r,x,y,PF-12));
+    const dial=matClone('plastic_abs',0xffffff);
+    dial.map=ctex(256,256,(c,w,h)=>{ c.fillStyle='#ecebe5'; c.fillRect(0,0,w,h);
+      c.strokeStyle='#22262b'; c.lineWidth=5; c.beginPath();
+      for(let i=0;i<=10;i++){const a=(-210+i*24)*Math.PI/180;
+        c.moveTo(128+Math.cos(a)*102,128+Math.sin(a)*102); c.lineTo(128+Math.cos(a)*84,128+Math.sin(a)*84);}
+      c.stroke(); c.fillStyle='#22262b'; c.font='bold 22px Arial'; c.textAlign='center';
+      c.fillText('MPa',128,190);
+      c.strokeStyle='#b4151c'; c.lineWidth=8; c.beginPath(); c.moveTo(128,128);
+      c.lineTo(128+Math.cos(-1.0)*84,128+Math.sin(-1.0)*84); c.stroke(); });
+    g.add(put(Me(new THREE.CircleGeometry(28,48), dial),x,y,PF-6.6));
+    const gl=Me(cyl(56,2,48), Mglass); gl.rotation.x=Math.PI/2; g.add(put(gl,x,y,PF-5.2));
+    part('Pressure gauge', g, {vi:'Đồng hồ áp suất', spec:[74,16,74], collide:false});})();
 
-  /* ---------- 5. coolant nozzle + work lamp ---------- */
-  {
-    const g = new THREE.Group();
-    const c = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(-300,1180,-170), new THREE.Vector3(-282,1246,-176),
-      new THREE.Vector3(-210,1272,-176), new THREE.Vector3(-140,1240,-172),
-      new THREE.Vector3(-112,1190,-170)]);
-    g.add(mesh(new THREE.TubeGeometry(c, 48, 11, 16, false), M.blue));
-    const tip = mesh(disc(22,26,1,24), M.blue); tip.position.set(-112,1188,-170); tip.rotation.x = D(20); g.add(tip);
-    const fit = mesh(disc(26,18,0.8,24), MAT.brass); fit.position.set(-300,1180,-170); g.add(fit);
-    part('Coolant nozzle (flexible)', g, {spec:'auto', vi:'Vòi tưới nguội'}); auto();
-  }
-  {
-    const g = new THREE.Group();
-    g.add(mbox(190,46,70,3, M.dkpl, -210,1462,-70));
-    g.add(mbox(170,4,50,0.5, matClone('plastic_abs', 0xf4f5f7), -210,1438,-70));
-    g.add(mbox(26,34,26,1, M.dark, -210,1483,-70));
-    part('Work lamp', g, {spec:'auto', vi:'Đèn chiếu sáng'}); auto();
-  }
+  /* ================= 3 · ivory deck band + machine name ================= */
+  P('Deck band (front apron)','Dải vỏ ngang thân máy', PED_L,400, PED_T,DECK, BK,FR, Mivory, {}, 3);
+  P('Deck joint strip','Nẹp khe ghép vỏ', PED_L,400, PED_T-4,PED_T+4, FR,FR+3, McharD, {collide:false},0.8);
+  decal('TAKAMAZ X-10 name decal','Nhãn hiệu TAKAMAZ X-10', 650,94, -372,640, FR-0.01,
+    ctex(1040,150,(x,w,h)=>{ x.clearRect(0,0,w,h); x.fillStyle='#d95f1e'; x.textBaseline='alphabetic';
+      x.setTransform(1,0,-0.18,1,70,0);
+      x.font='900 86px "Arial Black", Arial, sans-serif'; x.fillText('TAKAMAZ', 0, 108);
+      x.font='900 124px Georgia, "Times New Roman", serif'; x.fillText('X-10', 540, 112); }));
 
-  /* ---------- 6. enclosure sheet metal: separate panels, 4 mm gap lines ---------- */
-  pbox('Enclosure left wall',      [-680,-677],[300,1520],[FP+T,300], M.cover, {r:1, vi:'Vách trái'});
-  pbox('Left side access panel',   [-680,-677],[300,1520],[304,670],  M.cover, {r:1, vi:'Tấm tháo bên trái'});
-  for (let i=0;i<4;i++){
-    const b = hexBolt(8,14); b.rotation.z = PI/2;
-    b.position.set(-674.4, i<2?440:1260, i%2?340:640);
-    part('Side panel screw M8 '+(i+1), b, {fastener:true, vi:'Vít tấm bên M8 '+(i+1)});
+  /* ================= 4 · headstock cover ================= */
+  (()=>{ const s=new THREE.Shape();
+    const pts=[[640,747],[640,1098],[469,1367],[250,1418],[-248,1418],[-248,747]];
+    s.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++) s.lineTo(pts[i][0],pts[i][1]); s.closePath();
+    const g=new THREE.ExtrudeGeometry(s,{depth:626,bevelEnabled:true,bevelThickness:2,bevelSize:2,
+      bevelSegments:2,curveSegments:4});
+    g.translate(0,0,2); g.rotateY(-Math.PI/2); g.translate(-60,0,0);
+    part('Headstock cover', Me(g,Mivory), {vi:'Vỏ ụ trục chính', spec:[630,892,675]});})();
+  const faceA=Math.atan2(172,270);                       // 32.5 deg sloped window face
+  for(let i=0;i<4;i++){
+    const g=new THREE.Group();
+    g.add(Me(box(118,158,12,1.0), MivoryD));
+    g.add(put(Me(box(96,136,4,0.6), Mglass),0,0,5));
+    g.add(put(Me(box(100,140,3,0.5), matClone('paint_satin',0x6d7378)),0,0,-4));
+    g.position.set(-600+i*140, 1235+Math.sin(faceA)*7, 556+Math.cos(faceA)*7);
+    g.rotation.x=faceA;
+    part(`Inspection window ${i+1}`, g, {vi:`Cửa quan sát ${i+1}`, spec:[118,96.6,140.7], collide:false});
   }
-  pbox('Rear wall, lower',  [-680,680],[300,516],[670,673],    M.cover, {r:1, vi:'Vách sau dưới'});
-  pbox('Rear wall, upper',  [-680,680],[1304,1520],[670,673],  M.cover, {r:1, vi:'Vách sau trên'});
-  pbox('Rear wall, left',   [-680,-284],[520,1300],[670,673],  M.cover, {r:1, vi:'Vách sau trái'});
-  pbox('Rear wall, right',  [384,680],[520,1300],[670,673],    M.cover, {r:1, vi:'Vách sau phải'});
-  pbox('NC cabinet door (rear)', [-280,380],[520,1300],[670,673], M.dark, {r:1, vi:'Cửa tủ điện'});
-  [620, 1200].forEach((y,i)=>{
-    const g = new THREE.Group();
-    g.add(mbox(26,90,6,1.5, M.zinc, -268,y,676));
-    const pin = mesh(disc(12,96,0.6,20), M.zinc); pin.position.set(-288,y,679); g.add(pin);
-    part('Cabinet hinge '+(i+1), g, {spec:'auto', vi:'Bản lề tủ '+(i+1)}); auto();
-  });
-  {
-    const g = new THREE.Group();
-    g.add(mbox(30,120,6,1.5, M.zinc, 366,910,676));
-    const h = mesh(disc(12,90,0.8,24), M.zinc); h.position.set(366,910,679); g.add(h);
-    part('Cabinet latch handle', g, {spec:'auto', vi:'Tay khóa tủ'}); auto();
-  }
-  pbox('Enclosure right wall', [677,680],[300,1520],[-300,670], M.cover, {r:1, vi:'Vách phải'});
-  {
-    const a = Math.atan2(40, 673-(FP+T));
-    const dz = (673-(FP+T) - T*Math.sin(a))/Math.cos(a);
-    part('Roof panel (left)',  mbox(1016, T, dz, 1, M.cover, -172, 1521.5, (FP+T+673)/2, -a), {spec:'auto', vi:'Nóc trái'}); auto();
-    part('Roof panel (right)', mbox(340, T, (973 - T*Math.sin(a))/Math.cos(a), 1, M.cover, 510, 1527.1, 186.5, -a), {spec:'auto', vi:'Nóc phải'}); auto();
-    [[-420,120],[120,120]].forEach((p,i)=>{
-      const g = new THREE.Group();
-      g.add(mbox(70,16,70,2, M.zinc, p[0],1528,p[1]));
-      const ring = mesh(tube(64,40,14,32,1), M.zinc); ring.rotation.z = PI/2; ring.position.set(p[0],1562,p[1]); g.add(ring);
-      g.add(mbox(26,30,26,1, M.zinc, p[0],1543,p[1]));
-      part('Lifting eye '+(i+1), g, {spec:'auto', collide:false, vi:'Móc cẩu '+(i+1)}); auto();
-    });
-  }
+  P('Headstock cover latch','Chốt vỏ ụ trục chính', -300,-250, 900,1010, FR,FR+14,
+    matClone('alu_anodized'), {collide:false}, 1);
+  (()=>{ const g=new THREE.Group();                      // spindle motor, rear left
+    const b=Me(cyl(300,86,48), McharD); b.rotation.z=Math.PI/2; g.add(b);
+    for(let i=0;i<9;i++){ const f=Me(tube(306,296,5,48,0.5), Mchar); f.rotation.z=Math.PI/2;
+      f.position.x=-38+i*9.5; g.add(f);}
+    const cap=Me(tube(240,70,10,48,0.8), Mcast); cap.rotation.z=Math.PI/2; cap.position.x=-44; g.add(cap);
+    for(let i=0;i<4;i++){ const a=i*90*D+45*D, bl=hexBolt(10,16);
+      bl.rotation.z=Math.PI/2; bl.position.set(-46,Math.cos(a)*95,Math.sin(a)*95); g.add(bl);}
+    part('Spindle motor housing', put(g,-737,1105,40), {vi:'Vỏ mô tơ trục chính', spec:[96,306,306]});})();
+  P('Spindle belt cover','Vỏ puly dây đai (suy đoán)', -690,-320, DECK,1120, -430,-250, MivoryD, {}, 3);
+  part('Headstock end louvre', put(louvre(400,270,8,Mblue),-705.7,290,0).rotateY(-Math.PI/2),
+       {vi:'Lưới thông gió đầu trái (suy đoán)', spec:[17.4,400,270], collide:false});
 
-  /* ---------- 7. front face ---------- */
-  pbox('Front panel, fixed (left)', [-676,-336],[740,1120],[FP,FP+T], M.cover, {r:1, vi:'Tấm trước cố định'});
-  {   // louvre vent: real slats behind a flush frame, left of the door
-    const g = new THREE.Group();
-    const x0=-676, x1=-336, y0=1124, y1=1300;
-    g.add(mbox(x1-x0,12,T,0.6, M.cover, (x0+x1)/2, y0+6, FP+1.5));
-    g.add(mbox(x1-x0,12,T,0.6, M.cover, (x0+x1)/2, y1-6, FP+1.5));
-    g.add(mbox(12,y1-y0,T,0.6, M.cover, x0+6, (y0+y1)/2, FP+1.5));
-    g.add(mbox(12,y1-y0,T,0.6, M.cover, x1-6, (y0+y1)/2, FP+1.5));
-    g.add(mbox(x1-x0-20, y1-y0-20, 1.5, 0.4, M.dkpl, (x0+x1)/2, (y0+y1)/2, FP+9));
-    for (let i=0;i<6;i++)
-      g.add(mbox(x1-x0-24, 3, 16, 0.6, M.cover, (x0+x1)/2, y0+22+i*26, FP+6, D(30)));
-    part('Louvre vent panel', g, {spec:'auto', vi:'Tấm lưới thông gió'}); auto();
-  }
-  pbox('Front panel, upper left', [-676,-336],[1304,1418],[FP,FP+T], M.cover, {r:1, vi:'Tấm trước trên trái'});
-  pbox('TAKAMAZ wordmark', [-650,-430],[1332,1392],[FP-1.6,FP], M.orange,
-       {r:0.5, decal:true, collide:false, vi:'Chữ TAKAMAZ'});
-  pbox('Front fascia (top)',        [-676,296],[1468,1496],[FP,FP+T], M.cover, {r:1, vi:'Nẹp trên'});
-  pbox('Lower front panel (left)',  [-676,-180],[424,736],[FP,FP+T],  M.cover, {r:1, vi:'Tấm dưới trái'});
-  pbox('Lower front panel (right)', [-176,296],[424,736],[FP,FP+T],   M.cover, {r:1, vi:'Tấm dưới phải'});
-  {
-    const g = new THREE.Group();
-    g.add(mbox(150,46,1.4,0.3, M.dkpl, -570,660,FP-1.5));
-    g.add(mbox(104,10,1.4,0.3, M.orange, -570,648,FP-2.4));
-    part('X-10i model badge', g, {spec:'auto', decal:true, collide:false, vi:'Nhãn X-10i'}); auto();
-  }
-  [-428, 62].forEach((px,i)=>{
-    const g = new THREE.Group();
-    g.add(mbox(160,58,6,1, M.dkpl, px,580,FP+3.5));
-    g.add(mbox(128,16,18,2, M.cover, px,580,FP+1));
-    part('Flush handle '+(i+1), g, {spec:'auto', collide:false, vi:'Tay nắm chìm '+(i+1)}); auto();
-  });
-  {
-    const g = new THREE.Group();
-    g.add(mbox(972,44,16,1.5, M.cover, -190,1442,DR+6));
-    g.add(mbox(972,10,26,1, M.blk, -190,1424,DR+11));
-    part('Door top rail', g, {spec:'auto', vi:'Ray cửa trên'}); auto();
-  }
-  pbox('Accent stripe (orange)', [-676,296],[1428,1450],[DR-3,DR-1.5], M.orange,
-       {r:0.4, decal:true, collide:false, vi:'Dải cam ngang'});
+  /* ================= 5 · machining chamber shell ================= */
+  P('Chamber canopy','Mái che khoang gia công', -60,400, 1340,TOPY, BK,500, Mivory, {}, 3);
+  P('Chamber rear wall','Vách sau khoang (suy đoán)', -60,400, DECK,1340, -248,-238, Mgrey);
+  P('Chamber splash lip','Gờ chắn văng dung dịch', -60,400, DECK,838, 600,FR, MivoryD);
+  P('Chip chute','Máng dẫn phoi (suy đoán)', -60,400, DECK,792, 300,595, matClone('alu_brushed'));
+  P('Rear enclosure panel','Tấm vỏ sau (suy đoán)', PED_L,400, DECK,1340, PB,-610, Mivory, {}, 2);
+  P('Power cable gland','Cổng cáp nguồn (suy đoán)', 80,140, 880,940, -610,-585,
+    matClone('alu_anodized'), {collide:false}, 1);
+  (()=>{ const g=new THREE.Group(), m=matClone('alu_brushed',0xa9aeb3);
+    g.add(bxm(-60,400, DECK,1180, -232,-212, m, 1.0));
+    g.add(bxm(-30,360, DECK,1120, -212,-196, m, 1.0));
+    g.add(bxm(  0,320, DECK,1055, -196,-182, m, 1.0));
+    part('Telescopic way cover', g, {vi:'Che băng trượt kiểu xếp', spec:[460,50,435]});})();
 
-  /* ---------- 8. sliding door (moving) ---------- */
-  const doorG = new THREE.Group(); root.add(doorG);
-  {   // the door is a real sheet-metal frame with a cut-out, so you see into the machine
-    const g = new THREE.Group(), zc = DR+T/2;
-    g.add(mbox(100,680,T,1, M.cover, -350,1080,zc));
-    g.add(mbox(96,680,T,1, M.cover, 248,1080,zc));
-    g.add(mbox(500,90,T,1, M.cover, -50,785,zc));
-    g.add(mbox(500,50,T,1, M.cover, -50,1395,zc));
-    part('Sliding door panel', g, {spec:[696,T,680], moving:true, parent:doorG, vi:'Cửa trượt'});
-  }
-  {
-    const g = new THREE.Group();
-    const x0=-300,x1=200,y0=830,y1=1370,w=34, zc=DR-1.2;
-    g.add(mbox(x1-x0+2*w, w, 5, 0.8, M.blk, (x0+x1)/2, y0-w/2, zc));
-    g.add(mbox(x1-x0+2*w, w, 5, 0.8, M.blk, (x0+x1)/2, y1+w/2, zc));
-    g.add(mbox(w, y1-y0, 5, 0.8, M.blk, x0-w/2, (y0+y1)/2, zc));
-    g.add(mbox(w, y1-y0, 5, 0.8, M.blk, x1+w/2, (y0+y1)/2, zc));
-    part('Door window frame', g, {spec:'auto', collide:false, moving:true, parent:doorG, vi:'Khung kính'}); auto();
-  }
-  pbox('Door window (polycarbonate)', [-300,200],[830,1370],[DR+0.4,DR+2.4], M.glass,
-       {r:0.4, collide:false, moving:true, parent:doorG, vi:'Kính cửa'});
-  {
-    const g = new THREE.Group();
-    const bar = mesh(disc(28,620,1.5,32), M.steel); bar.position.set(248,1080,-671); g.add(bar);
-    [800,1360].forEach(y=>{
-      const s = mesh(disc(20,14,0.6,24), M.steel); s.rotation.x = PI/2; s.position.set(248,y,-664); g.add(s);
-      g.add(mbox(56,56,5,2, M.steel, 248,y,DR-2.5));
-    });
-    part('Door handle (tubular)', g, {spec:'auto', collide:false, moving:true, parent:doorG, vi:'Tay nắm cửa'}); auto();
-  }
+  /* ================= 6 · spindle, chuck, bar ================= */
+  const spin=new THREE.Group(); spin.position.set(0,SPY,SPZ); root.add(spin);
+  (()=>{ const g=new THREE.Group();
+    const n=Me(tube(142,62,35,64,1.0), Mcast); n.rotation.z=Math.PI/2; n.position.x=-42.5; g.add(n);
+    const fl=Me(tube(170,140,8,64,0.8), Mcast); fl.rotation.z=Math.PI/2; fl.position.x=-29; g.add(fl);
+    part('Spindle nose housing', put(g,0,SPY,SPZ), {vi:'Đầu trục chính', spec:[35,170,170]});})();
+  (()=>{ const p=[[30,-35],[83,-35],[85,-33],[85,33],[83,35],[36,35],[32,31],[30,27],[30,-35]]
+      .map(a=>new THREE.Vector2(a[0],a[1]));
+    const g=new THREE.LatheGeometry(p,64); g.rotateZ(-Math.PI/2); g.translate(10,0,0);
+    part('Chuck body (6 in, 3 jaw)', Me(g,Msteel),
+         {vi:'Mâm cặp 3 chấu 6 inch', spec:[70,170,170], moving:true, parent:spin});})();
+  for(let i=0;i<3;i++){ const g=new THREE.Group();
+    g.add(put(Me(box(42,44,34,1.0), Msteel),55,74,0));
+    g.add(put(Me(box(42,30,34,0.8), Msteel),70,52,0));
+    for(let k=0;k<2;k++){ const b=hexBolt(10,22); b.rotation.z=Math.PI/2;
+      b.position.set(78,74,-11+k*22); g.add(b);}
+    g.rotation.x=i*120*D;
+    part(`Chuck jaw ${i+1}`, g, {vi:`Chấu kẹp ${i+1}`, moving:true, collide:false, parent:spin});}
+  part('Workpiece bar Ø60', (()=>{const p=[[0,45],[28,45],[30,47],[30,173],[28,175],[0,175]]
+      .map(a=>new THREE.Vector2(a[0],a[1]));
+      const g=new THREE.LatheGeometry(p,48); g.rotateZ(-Math.PI/2); return Me(g,Msteel);})(),
+      {vi:'Phôi Ø60 (suy đoán)', spec:[130,60,60], moving:true, parent:spin});
 
-  /* ---------- 9. chip pan ---------- */
-  {
-    const g = new THREE.Group();
-    g.add(mbox(740,100,340,4, M.ss, -250,350,-470));
-    g.add(mbox(972,120,T,1, M.plinth, -190,360,FP+1.5));
-    g.add(mbox(300,18,24,2, M.ss, -190,392,FP-11));
-    part('Chip pan / chip tray', g, {spec:'auto', vi:'Khay phoi'}); auto();
-  }
+  /* ================= 7 · saddle + turret ================= */
+  const sad=new THREE.Group(); root.add(sad);
+  P('Cross slide saddle','Bàn trượt ngang', 200,400, DECK,1000, -140,280, Mcast,
+    {moving:true, parent:sad}, 4);
+  P('Slide way wiper','Gạt bụi băng trượt (suy đoán)', 200,400, 1000,1012, -140,-60,
+    matClone('rubber'), {moving:true, parent:sad, collide:false});
+  P('X-axis slide riser','Đế trượt trục X', 355,400, 1000,1045, -95,115, Mcast, {moving:true, parent:sad}, 3);
+  part('Turret drive housing', (()=>{const g=new THREE.Group();
+      const d=Me(cyl(210,45,48), Mcast); d.rotation.z=Math.PI/2; g.add(put(d,377.5,1150,10));
+      const c=Me(tube(120,40,14,48,0.8), Mcast); c.rotation.z=Math.PI/2; g.add(put(c,353,1150,10));
+      return g;})(), // coupling boss seats inside the turret bore, like a shaft in a bore -> not a clash
+      {vi:'Hộp dẫn động đài dao', spec:[54,210,210], moving:true, collide:false, parent:sad});
+  part('Z-axis ballscrew', (()=>{const s=Me(cyl(32,420,24), Msteel); s.rotation.z=Math.PI/2;
+      return put(s,250,DECK+55,-170);})(),
+      {vi:'Vít me bi trục Z (suy đoán)', spec:[420,32,32], moving:true, collide:false, parent:sad});
+  const idx=new THREE.Group(); idx.position.set(0,1150,10); sad.add(idx);
+  (()=>{ const p=[[30,-45],[136,-45],[140,-41],[140,41],[136,45],[30,45],[26,41],[26,-41],[30,-45]]
+      .map(a=>new THREE.Vector2(a[0],a[1]));
+    const g=new THREE.LatheGeometry(p,64); g.rotateZ(-Math.PI/2); g.translate(310,0,0);
+    part('Turret disc (8 station)', Me(g,Mcast),
+         {vi:'Đài dao 8 vị trí', spec:[90,280,280], moving:true, parent:idx});})();
+  const a0=Math.atan2(56,-110);
+  for(let k=0;k<8;k++){ const a=a0+k*45*D, g=new THREE.Group();
+    g.add(put(Me(box(56,56,52,1.0), Msteel),237,0,0));
+    for(let b=0;b<2;b++){ const s=hexBolt(10,20); s.rotation.z=-Math.PI/2;
+      s.position.set(266,-14+b*28,0); g.add(s);}
+    if(k%2===0){ g.add(put(Me(box(25,25,25,0.6), Mblk),196,0,0));
+      g.add(put(Me(box(14,10,12,0.4), matClone('alu_anodized',0xcfd3d7)),177,-6,0)); }
+    g.position.set(0,Math.cos(a)*120,Math.sin(a)*120); g.rotation.x=a;
+    part(`Tool station ${k+1}`, g, {vi:`Vị trí dao ${k+1}`, moving:true, collide:false, parent:idx});}
+  part('Coolant line', (()=>{const c=new THREE.CatmullRomCurve3([
+      new THREE.Vector3(120,1335,-40), new THREE.Vector3(150,1300,30),
+      new THREE.Vector3(185,1210,110), new THREE.Vector3(205,1120,120),
+      new THREE.Vector3(215,1070,96)]);
+      return Me(new THREE.TubeGeometry(c,48,11,16), matClone('rubber',0x2f6fd0));})(),
+      {vi:'Ống tưới nguội', spec:[116.1,179,279.9], collide:false});
+  part('Coolant nozzle', put(Me(cyl(20,46,20), Morange),218,1045,88),
+       {vi:'Vòi tưới nguội', spec:[20,20,46], collide:false});
 
-  /* ---------- 10. FANUC pendant on its swing arm (sets the column front) ---------- */
-  const pend = new THREE.Group(); root.add(pend);
-  {
-    const mk = (n,o,opt)=>{ part(n,o,Object.assign({spec:'auto',parent:pend},opt||{})); auto(); };
-    const hw=336, hh=486, ht=56;
-    const hs = new THREE.Group();
-    hs.add(mbox(hw,hh,ht,5, M.dark, 0,0,0));
-    hs.add(mbox(hw-14,hh-14,6,1.5, M.dkpl, 0,0,-ht/2-2));
-    hs.add(mbox(120,120,70,6, M.dark, 0,-150,ht/2+32));          // swing arm back to the column
-    mk('Control pendant housing', hs, {vi:'Vỏ bảng điều khiển'});
-    mk('Screen bezel', mbox(272,214,9,2, M.dkpl, 0,122,-ht/2-7), {collide:false, vi:'Viền màn hình'});
-    mk('FANUC 8.4 in LCD', mbox(232,174,3,0.8, M.screen, 0,122,-ht/2-12.6), {collide:false, vi:'Màn hình'});
-    { const g=new THREE.Group();
-      g.add(mbox(260,132,6,1.5, M.dkpl, 0,-46,-ht/2-7));
-      for (let r=0;r<5;r++) for (let c=0;c<7;c++)
-        g.add(mbox(28,16,3,0.6, M.abs, -102+c*34, -6-r*24, -ht/2-11));
-      mk('MDI keypad', g, {collide:false, vi:'Bàn phím MDI'}); }
-    { const g=new THREE.Group();
-      for (let i=0;i<7;i++) g.add(mbox(28,14,3,0.6, M.abs, -102+i*34, 20, -ht/2-11));
-      mk('Soft-key row', g, {collide:false, vi:'Hàng phím mềm'}); }
-    { const g=new THREE.Group();
-      [0xff3b2e,0x45d978,0xffb020,0xdcdee0,0x2f6fd0].forEach((c,i)=>{
-        const b = mesh(disc(26,9,0.8,24), matClone('plastic_abs', c));
-        b.rotation.x = PI/2; b.position.set(-104+i*44,-166,-ht/2-6); g.add(b);
-        const r = mesh(tube(34,26,4,24), M.dkpl); r.rotation.x = PI/2; r.position.set(-104+i*44,-166,-ht/2-3); g.add(r); });
-      mk('Operation button row', g, {collide:false, vi:'Hàng nút điều khiển'}); }
-    { const g=new THREE.Group();
-      const b = mesh(disc(58,8,0.8,32), M.yel); b.rotation.x = PI/2; b.position.set(118,-212,-ht/2-5); g.add(b);
-      const m = mesh(disc(48,20,2,32), M.red);  m.rotation.x = PI/2; m.position.set(118,-212,-ht/2-15); g.add(m);
-      mk('Emergency stop', g, {collide:false, vi:'Nút dừng khẩn'}); }
-    { const g=new THREE.Group();
-      const w = mesh(tube(132,56,18,48,1), M.dkpl); w.rotation.x = PI/2; w.position.set(-110,-212,-ht/2-14); g.add(w);
-      const h = mesh(disc(64,16,1,32), M.steel);    h.rotation.x = PI/2; h.position.set(-110,-212,-ht/2-10); g.add(h);
-      const k = mesh(disc(16,26,0.6,20), M.blk);    k.rotation.x = PI/2; k.position.set(-110,-262,-ht/2-26); g.add(k);
-      mk('Manual pulse generator (handwheel)', g, {collide:false, vi:'Tay quay xung'}); }
-    part('FANUC nameplate', mbox(104,18,1.2,0.3, M.dkpl, -106,232,-ht/2-7),
-         {decal:true, collide:false, parent:pend, vi:'Nhãn FANUC'});
-    pend.rotation.x = D(9);
-    pend.position.set(510, 1265, -600);
-  }
-  pend.position.z += (-685 - new THREE.Box3().setFromObject(pend).min.z);
-  const COLZ = Math.ceil(new THREE.Box3().setFromObject(pend).max.z) + 3;
+  /* ================= 8 · charcoal control pillar + operator panel ================= */
+  P('Control pillar column','Trụ điều khiển', 400,760, PED_T,1050, -260,FR, Mchar, {}, 3);
+  P('Pillar lower panel','Tấm vỏ dưới trụ', 420,740, 700,1030, FR,PF, Mgrey, {}, 2);
+  [[434,714],[726,714],[434,1016],[726,1016]].forEach((p,i)=>
+    part(`Pillar panel screw ${i+1}`, screw(p[0],p[1],PF-1), {vi:`Vít tấm trụ ${i+1}`, fastener:true}));
+  P('Pillar upper box','Khối trên trụ điều khiển (suy đoán)', 400,756, 1050,1340, -260,220, Mchar, {}, 3);
+  P('Pendant housing','Hộp bảng điều khiển', 400,760, 1050,1720, 220,620, Mchar, {}, 3);
+  P('Pendant top cap','Nắp trên bảng điều khiển', 396,764, 1706,1720, 216,624, McharD, {collide:false},2);
 
-  /* ---------- 11. operator column, tank, cabinets ---------- */
-  pbox('Operator column (upper)', [340,680],[1000,1520],[COLZ,-300], M.dark, {r:5, vi:'Cột điều khiển'});
-  pbox('Column roof',             [340,680],[1520,1523],[COLZ,-300], M.cover, {r:1, vi:'Nóc cột'});
-  pbox('Column lower cabinet',    [340,680],[700,990],[-640,-300],   M.dark, {r:4, vi:'Tủ dưới cột'});
-  pbox('Column cabinet door',     [350,670],[712,978],[-643,-640],   M.dark, {r:1, vi:'Cánh tủ cột'});
-  part('Column door latch', mbox(26,90,16,2, M.zinc, 646,845,-650),
-       {spec:'auto', collide:false, vi:'Khóa cánh tủ'}); auto();
-  pbox('Coolant tank drawer', [350,670],[300,696],[-660,-280], M.plinth, {r:4, vi:'Ngăn dung dịch'});
-  {
-    const g = new THREE.Group();
-    g.add(mbox(240,18,26,2, M.steel, 510,560,-660));
-    g.add(mbox(300,60,4,1, M.dkpl, 510,400,-662));
-    part('Coolant tank handle', g, {spec:'auto', collide:false, vi:'Tay nắm thùng'}); auto();
-  }
-  pbox('NC electrical cabinet (rear)', [-300,400],[400,1300],[440,666], M.dark, {r:4, vi:'Tủ điện'});
-  [-120, 220].forEach((px,i)=>{
-    const g = new THREE.Group();
-    g.add(mbox(170,170,4,1, M.dkpl, px,1150,437.5));
-    for (let k=0;k<9;k++) g.add(mbox(150,8,6,1, M.dark, px,1072+k*18,436));
-    part('Cabinet fan grille '+(i+1), g, {spec:'auto', collide:false, vi:'Lưới quạt '+(i+1)}); auto();
-  });
+  const pend=new THREE.Group(); pend.position.set(580,1385,612); pend.rotation.x=-4*D; root.add(pend);
+  part('Pendant face plate', put(Me(box(344,640,20,1.5), Mgrey),0,0,0),
+       {vi:'Mặt bảng điều khiển', spec:[344,64.6,639.9], collide:false, parent:pend});
+  part('NC display bezel', put(Me(box(250,172,10,1.2), McharD),-36,214,8),
+       {vi:'Khung màn hình NC', spec:[250,22,172.3], collide:false, parent:pend});
+  part('NC screen', put(Me(box(214,132,4,0.6), (()=>{const m=matClone('plastic_abs',0x11161b);
+      m.map=ctex(428,264,(x,w,h)=>{ x.fillStyle='#101519'; x.fillRect(0,0,w,h);
+        x.fillStyle='#9fe3b5'; x.font='bold 18px monospace';
+        ['ACTUAL POSITION','X    120.000','Z   -085.400','F 0.18   S 2400','T 0303   G97 G99']
+          .forEach((s,i)=>x.fillText(s,24,42+i*36));
+        x.strokeStyle='#3c4a56'; x.lineWidth=2; x.strokeRect(10,10,w-20,h-20); });
+      m.emissive=new THREE.Color(0x16301f); m.emissiveIntensity=0.55; return m;})()),-36,214,14),
+      {vi:'Màn hình NC', spec:[214,13.2,132], collide:false, parent:pend});
+  part('Indicator lamp strip', put(Me(box(250,42,8,0.8), (()=>{const m=matClone('plastic_abs',0xe6e4de);
+      m.map=ctex(500,84,(x,w,h)=>{ x.fillStyle='#e8e6e0'; x.fillRect(0,0,w,h);
+        ['#d94f3a','#e8a93a','#58b85e','#58b85e','#3a7fd9','#e8a93a','#58b85e'].forEach((col,i)=>{
+          x.fillStyle=col; x.beginPath(); x.arc(46+i*62,42,17,0,7); x.fill();
+          x.strokeStyle='#8c8a84'; x.lineWidth=3; x.stroke();});}); return m;})()),-36,316,10),
+      {vi:'Dải đèn báo', spec:[250,10.9,42.5], collide:false, parent:pend});
+  part('MDI key panel', put(Me(box(290,150,6,0.8), (()=>{const m=matClone('plastic_abs',0x2b3036);
+      m.map=ctex(580,300,(x,w,h)=>{ x.fillStyle='#2c3137'; x.fillRect(0,0,w,h); x.textAlign='center';
+        for(let r=0;r<5;r++) for(let c=0;c<11;c++){
+          x.fillStyle=(r===0)?'#d7d4cc':'#4a5057'; x.fillRect(16+c*50,14+r*56,42,46);
+          x.fillStyle=(r===0)?'#2b3036':'#c9ccd0'; x.font='bold 15px Arial';
+          x.fillText('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[(r*11+c)%36],37+c*50,44+r*56);} });
+      return m;})()),0,78,12), {vi:'Bàn phím MDI', spec:[290,16.5,150], collide:false, parent:pend});
+  part('Operator sub panel', put(Me(box(300,120,8,1.0), McharD),0,-62,10),
+       {vi:'Bảng nút vận hành', spec:[300,16.4,120.2], collide:false, parent:pend});
+  (()=>{ const g=new THREE.Group();
+    const b=Me(cyl(62,10,32), Mblk); b.rotation.x=Math.PI/2; g.add(b);
+    const k=Me(cyl(40,16,24), matClone('plastic_abs',0x1b1e22)); k.rotation.x=Math.PI/2; k.position.z=8; g.add(k);
+    g.add(put(Me(box(8,22,4,0.4), matClone('plastic_abs',0xe0ded8)),0,12,16));
+    part('Mode selector switch', put(g,-108,-40,16),
+         {vi:'Công tắc chọn chế độ', collide:false, parent:pend});})();
+  const pb=(name,vi,x,y,col,d)=>{ const g=new THREE.Group();
+    const r=Me(tube(d+12,d-2,6,32,0.5), Mzinc); r.rotation.x=Math.PI/2; g.add(r);
+    const c=Me(cyl(d,8,32), col); c.rotation.x=Math.PI/2; c.position.z=5; g.add(c);
+    part(name, put(g,x,y,16), {vi, collide:false, parent:pend});};
+  pb('Cycle start button','Nút chạy chu trình',  -108,-96, Mgreen, 26);
+  pb('Feed hold button','Nút giữ bàn dao',        -58,-96, Mamber, 26);
+  pb('Spindle stop button','Nút dừng trục chính', 120,-40, Mblk,   22);
+  pb('Coolant button','Nút bơm tưới nguội',       120,-84, matClone('plastic_abs',0x3f454b), 22);
+  (()=>{ const g=new THREE.Group();
+    const b=Me(cyl(56,8,32), matClone('plastic_abs',0xe3b50f)); b.rotation.x=Math.PI/2; g.add(b);
+    const c=Me(cyl(34,12,32), Mred); c.rotation.x=Math.PI/2; c.position.z=8; g.add(c);
+    const cap=Me(new THREE.SphereGeometry(27,32,16,0,7,0,1.15), Mred);
+    cap.rotation.x=Math.PI/2; cap.position.z=10; g.add(cap);
+    part('Emergency stop', put(g,10,-92,16), {vi:'Nút dừng khẩn cấp', collide:false, parent:pend});})();
+  for(let i=0;i<2;i++){ const g=new THREE.Group();
+    const b=Me(tube(20,8,5,24,0.4), Mzinc); b.rotation.x=Math.PI/2; g.add(b);
+    const l=Me(cyl(7,22,16), Mzinc); l.rotation.x=Math.PI/2+0.35; l.position.z=10; g.add(l);
+    part(`Toggle switch ${i+1}`, put(g,54+i*34,-96,16),
+         {vi:`Công tắc gạt ${i+1}`, collide:false, parent:pend});}
+  (()=>{ const m=matClone('paint_satin',0xffffff);
+    m.map=ctex(400,80,(x,w,h)=>{ x.clearRect(0,0,w,h); x.fillStyle='#1b1e22';
+      x.font='italic 900 54px Arial'; x.fillText('TAKAMAZ',8,60);});
+    m.transparent=true; m.depthWrite=false; m.polygonOffset=true; m.polygonOffsetFactor=-3;
+    part('Pendant nameplate', put(Me(new THREE.PlaneGeometry(150,30),m),-92,-128,15),
+      {vi:'Nhãn TAKAMAZ', decal:true, collide:false, parent:pend});})();
 
-  /* ---------- 12. signal tower: thin rod + 3-lamp stack, top at 1720 ---------- */
-  {
-    const TX = 520, TZ = -430;
-    const base = mesh(disc(74,10,1,32), M.blk); base.position.set(TX,1528,TZ);
-    part('Signal tower base', base, {spec:[74,74,10], vi:'Đế đèn báo'});
-    const rod = mesh(disc(25,92,0.6,24), M.blk); rod.position.set(TX,1574,TZ);
-    part('Signal tower rod', rod, {spec:[25,25,92], vi:'Trụ đèn báo'});
-    [['red',M.red,1620],['amber',M.amber,1650],['green',M.green,1680]].forEach(l=>{
-      const m = mesh(tube(62,34,30,32,0.8), l[1]); m.position.set(TX,l[2]+15,TZ);
-      part('Signal lamp '+l[0], m, {spec:[62,62,30], vi:'Đèn báo '+l[0]});
-    });
-    const cap = mesh(disc(62,10,1,32), M.blk); cap.position.set(TX,1715,TZ);
-    part('Signal tower cap', cap, {spec:[62,62,10], vi:'Nắp đèn báo'});
-    for (let i=0;i<3;i++){ const a=i*2*PI/3+PI/6;
-      const b = hexBolt(8,14); b.position.set(TX+28*Math.cos(a),1533,TZ+28*Math.sin(a));
-      part('Tower base bolt M8 '+(i+1), b, {fastener:true, vi:'Bu lông M8 '+(i+1)}); }
-  }
+  /* ================= 9 · rear electrical cabinet, drawers, lifting eyes ========= */
+  P('Electrical cabinet','Tủ điện (suy đoán)', 400,756, PED_T,TOPY, BK,-260, Mblue, {}, 4);
+  P('Cabinet door','Cánh tủ điện (suy đoán)', 756,764, 620,1340, -620,-290, MblueD, {}, 1.5);
+  for(let i=0;i<2;i++) P(`Cabinet hinge ${i+1}`,`Bản lề tủ điện ${i+1} (suy đoán)`,
+    758,772, 660+i*600, 720+i*600, -612,-572, Mzinc, {collide:false}, 1);
+  P('Cabinet door latch','Khoá cánh tủ (suy đoán)', 758,776, 940,1010, -330,-300,
+    matClone('alu_anodized'), {collide:false}, 1);
+  (()=>{ const g=new THREE.Group();                     // main disconnect on the cabinet door
+    g.add(bxm(764,772, 1040,1130, -480,-390, matClone('paint_satin',0xd8ae12), 1.5));
+    const h=Me(box(8,16,66,1.0), Mred); h.position.set(776,1085,-435); h.rotation.x=0.6; g.add(h);
+    part('Main disconnect switch', g, {vi:'Cầu dao chính (suy đoán)', spec:[16,90,90], collide:false});})();
+  P('Cabinet top cap','Nắp trên tủ điện (suy đoán)', 396,760, TOPY-14,TOPY, BK-4,-256, McharD,
+    {collide:false}, 2);
+  (()=>{ const g=new THREE.Group();
+    const r=Me(tube(190,150,8,48,0.6), Mchar); r.rotation.z=Math.PI/2; g.add(put(r,760,0,0));
+    for(let i=0;i<6;i++) g.add(put(Me(box(8,10,150,0.5), Mchar),759,-60+i*24,0));
+    g.position.set(0,1150,-450);
+    part('Cabinet fan grille', g, {vi:'Lưới quạt tủ điện (suy đoán)', spec:[9,190,190], collide:false});})();
+  (()=>{ const m=matClone('plastic_abs',0xd9d7d1);
+    m.map=ctex(300,120,(x,w,h)=>{ x.fillStyle='#d9d7d1'; x.fillRect(0,0,w,h);
+      x.fillStyle='#23262a'; x.font='bold 30px Arial'; x.fillText('TAKAMATSU',16,48);
+      x.font='20px Arial'; x.fillText('X-10   AC200V  50/60Hz',16,88);});
+    const o=Me(new THREE.PlaneGeometry(130,52), m); o.rotation.y=Math.PI/2; o.position.set(764.5,1290,-430);
+    part('Cabinet nameplate', o, {vi:'Nhãn thông số tủ điện (suy đoán)', decal:true, collide:false});})();
 
-  /* ---------- 13. interior lighting so the machining area reads through the glass ---------- */
-  {
-    const pl = new THREE.PointLight(0xfff4e2, 260000, 2800, 2);
-    pl.position.set(-180, 1410, -60); root.add(pl);
-    const pl2 = new THREE.PointLight(0xe8f0ff, 150000, 2200, 2);
-    pl2.position.set(60, 1180, -250); root.add(pl2);
-    const pl3 = new THREE.PointLight(0xfff4e2, 90000, 1800, 2);
-    pl3.position.set(-120, 1050, -300); root.add(pl3);
-  }
+  P('Chip tray drawer','Khay hứng phoi (suy đoán)', -120,380, 95,320, PB,BK, MblueD, {}, 1.5);
+  for(let i=0;i<2;i++) P(`Chip tray handle ${i+1}`,`Tay nắm khay phoi ${i+1} (suy đoán)`,
+    -40+i*220,60+i*220, 248,272, PB,PB+16, matClone('alu_anodized'), {collide:false}, 1);
+  P('Coolant tank drawer','Thùng dung dịch (suy đoán)', -660,-160, 95,400, PB,BK, MblueD, {}, 1.5);
+  P('Coolant tank handle','Tay nắm thùng dung dịch (suy đoán)', -490,-330, 328,354, PB,PB+16,
+    matClone('alu_anodized'), {collide:false}, 1);
+  part('Lifting eye 1', eyebolt(-500,1424,60), {vi:'Móc cẩu 1 (suy đoán)', spec:[66,24,68], collide:false});
+  part('Lifting eye 2', eyebolt(-140,1424,60), {vi:'Móc cẩu 2 (suy đoán)', spec:[66,24,68], collide:false});
 
-  /* ---------- 14. fasteners ---------- */
-  for (let i=0;i<6;i++){
-    const b = hexBolt(16,30); b.position.set(-590+i*72, 840, i%2 ? 20 : -290);
-    part('Headstock bolt M16 '+(i+1), b, {fastener:true, vi:'Bu lông ụ trục M16 '+(i+1)});
-  }
-  for (let i=0;i<6;i++){
-    const a = i*PI/3 + PI/6, b = hexBolt(10,26); b.rotation.z = PI/2;
-    b.position.set(-105, SY+68*Math.cos(a), SZ+68*Math.sin(a));
-    part('Chuck bolt M10 '+(i+1), b, {fastener:true, vi:'Bu lông mâm cặp M10 '+(i+1)});
-  }
-  [[360,1030],[660,1030],[360,1490],[660,1490]].forEach((p,i)=>{
-    const b = hexBolt(8,20); b.rotation.x = -PI/2; b.position.set(p[0], p[1], COLZ-5);
-    part('Pendant bolt M8 '+(i+1), b, {fastener:true, vi:'Bu lông bảng M8 '+(i+1)});
-  });
-
-  /* ---------- datum flip ----------
-     spec.yaml is self-contradictory: it puts the operator at -Z but also calls +X
-     "right in operator view".  Both only hold with the front at +Z, so the whole
-     assembly is mirrored in Z here: door, pendant and tank end up at +Z, the
-     headstock stays at -X and the operator column at +X, as in the XT-6 photo.   */
-  {
-    const MIR = new THREE.Group(); MIR.scale.z = -1;
-    while (root.children.length) MIR.add(root.children[0]);
-    root.add(MIR); root.updateMatrixWorld(true);
-  }
-
-  /* ---------- motion: 6 s cycle ---------- */
-  const CYCLE = 6, OPEN = -250;
-  const anim = [
-    {part:doorG,  axis:'x', from:0,       to:OPEN,    t0:0, t1:1},   // door opens
-    {part:slideG, axis:'x', from:0,       to:-TRAVEL, t0:1, t1:3},   // turret traverses
-    {part:slideG, axis:'x', from:-TRAVEL, to:-TRAVEL, t0:3, t1:4},   // dwell = cut
-    {part:slideG, axis:'x', from:-TRAVEL, to:0,       t0:4, t1:5},   // slide returns
-    {part:doorG,  axis:'x', from:OPEN,    to:0,       t0:5, t1:6}    // door closes
-  ];
+  /* ================= 10 · 6 s turning cycle ================= */
+  const kf=(t,keys)=>{ if(t<=keys[0][0]) return keys[0][1];
+    for(let i=1;i<keys.length;i++) if(t<=keys[i][0]){
+      const u=(t-keys[i-1][0])/(keys[i][0]-keys[i-1][0]), e=u*u*(3-2*u);
+      return keys[i-1][1]+(keys[i][1]-keys[i-1][1])*e; }
+    return keys[keys.length-1][1]; };
+  anim.push({obj:sad, axis:'x', keys:[[0,0],[0.9,-60],[3.4,-75],[4.3,0],[6,0]]});
+  anim.push({obj:sad, axis:'z', keys:[[0,-60],[0.9,0],[3.6,0],[4.1,-60],[6,-60]]});
+  const CYCLE=6; let T=0;
   function setTime(t){
-    t = ((t % CYCLE) + CYCLE) % CYCLE;
-    const seen = new Set();
-    for (const a of anim){ const k = a.part.uuid + a.axis;
-      if (!seen.has(k)){ seen.add(k); a.part.position[a.axis] = a.from; } }
-    for (const a of anim){
-      if (t < a.t0) continue;
-      const u = THREE.MathUtils.clamp((t - a.t0)/(a.t1 - a.t0), 0, 1);
-      const e = u*u*(3 - 2*u);
-      a.part.position[a.axis] = a.from + (a.to - a.from)*e;
-    }
-    wayUpdate();
+    T=((t%CYCLE)+CYCLE)%CYCLE;
+    for(const a of anim) a.obj.position[a.axis]=kf(T,a.keys);
+    spin.rotation.x = Math.floor(T*14)*Math.PI/2;      // 90 deg steps: AABB stays exact
+    idx.rotation.x  = (T>=4.7? -Math.PI/2 : 0);         // turret indexes two stations
   }
-  let TT = 0, playing = false;
   setTime(0);
-
-  /* simulation UI (the shell leaves #sim / #kpis for the model to fill) */
-  const SIM = [['0.0–1.0 s','door opens 250 mm'],['1.0–3.0 s','turret slide traverses 160 mm'],
-               ['3.0–4.0 s','dwell — cutting'],['4.0–5.0 s','slide returns'],['5.0–6.0 s','door closes']];
-  try {
-    document.getElementById('g-sim').hidden = false;
-    document.getElementById('g-kpi').hidden = false;
-    const row = document.getElementById('sim');
-    const btn = document.createElement('button'); btn.textContent = 'Play cycle'; row.appendChild(btn);
-    const sl = document.createElement('input'); sl.type='range'; sl.min=0; sl.max=CYCLE; sl.step=0.05; sl.value=0;
-    row.appendChild(sl);
-    btn.onclick = () => { playing = !playing; btn.classList.toggle('on', playing);
-                          btn.textContent = playing ? 'Pause' : 'Play cycle'; };
-    sl.oninput = () => { playing = false; btn.classList.remove('on'); btn.textContent = 'Play cycle';
-                         TT = +sl.value; window.__model.setTime(TT); };
-    const kp = document.getElementById('kpis');
-    SIM.forEach(k => { const d = document.createElement('div'); d.className = 'kpi';
-      d.innerHTML = '<span>' + k[1] + '</span><b>' + k[0] + '</b>'; kp.appendChild(d); });
-  } catch(e){ /* UI optional */ }
-
-  /* grouped parts: spec = measured envelope at t = 0 */
-  for (const p of AUTO){
-    const b = new THREE.Box3().setFromObject(p.obj), s = new THREE.Vector3(); b.getSize(s);
-    p.spec = [+s.x.toFixed(2), +s.z.toFixed(2), +s.y.toFixed(2)];
-  }
-
   return {
-    views:{operator:[-0.25,0.2,1], panel:[0.95,0.32,0.85], inside:[-0.1,0.28,1],
-           hero:[-0.95,0.42,0.95]},
-    steps:SIM,
+    views:{photo:[0.8,0.33,1.0]},
+    steps:[{t:0,label:'bar clamped'},{t:0.9,label:'rapid approach'},{t:3.4,label:'OD turning'},
+           {t:4.3,label:'retract'},{t:5.5,label:'turret index'}],
     setTime,
-    update(dt){ if (!playing) return false; TT = (TT + dt) % CYCLE; setTime(TT); return true; }
+    update(dt){ setTime(T+dt); return true; }
   };
 }
 const MODEL_INFO = build();
