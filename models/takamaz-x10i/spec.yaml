@@ -54,3 +54,7 @@ unknown:
   - every part dims/pos: estimated by scaling the XT-6 front photo to 1360 x 1720; no drawing found
   - signal tower: 1720 H probably includes it, so the column is ≈1570 tall in reality
   - bar feeder interface: none known (XT-6 uses loaders; not a bar machine)
+photo_search_result: |
+  No real X-10i photo obtained. WebSearch found no X-10i listing on machinio/exapro/kitmondo/machineseeker/trademachines/surplusrecord/ebay/ullo/nc-net;
+  machinetools.com has an X-10I model page (discontinued) but is behind a Cloudflare challenge. Only X-10i listing seen: equipt.com 81800 (not reachable).
+  ref/xt6_* are XT-6 successor photos, not the X-10i.
