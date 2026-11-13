@@ -58,3 +58,8 @@ photo_search_result: |
   No real X-10i photo obtained. WebSearch found no X-10i listing on machinio/exapro/kitmondo/machineseeker/trademachines/surplusrecord/ebay/ullo/nc-net;
   machinetools.com has an X-10I model page (discontinued) but is behind a Cloudflare challenge. Only X-10i listing seen: equipt.com 81800 (not reachable).
   ref/xt6_* are XT-6 successor photos, not the X-10i.
+x10_search_result: |
+  Real machine per user photo ref/x10_real_3q.png is a blue TAKAMAZ "X-10" (older generation): blue pedestal base, light-grey upper enclosure with 3x2 window grid on a sliding door,
+  tall dark control column right with CRT/MDI panel, orange motor/oil unit at left-front, TAKAMAZ X-10 logo bar on base top edge, black chuck cylinder / headstock at left.
+  Specs from search snippets only (UniMachines/Aucto "X-10 Hi-Server", hosts not allowed): X travel 4.72 in (120 mm), Z 9.06 in (230 mm), max length 203, swing over bed 165, motor 5.7 kW, spindle bore 46, 8 stations.
+  No W x D x H / weight / spindle height for X-10 found; X-10i listing's 1369x1359x1720 / 2200 kg remains the best proxy. Yuasa general catalogue 2023 and XC/XL catalogue have no X-10.
